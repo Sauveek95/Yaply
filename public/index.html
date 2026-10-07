@@ -542,8 +542,27 @@
                 document.getElementById('notif-badge').innerText = myUser.requests.length;
                 const list = document.getElementById('notif-list');
                 list.innerHTML = myUser.requests.length === 0 ? '<div style="color:#8696a0; text-align:center;">No new requests</div>' : '';
+                
                 myUser.requests.forEach(req => {
-                    list.innerHTML += `<div style="background:#111b21; padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;"><span style="color:#e9edef; font-weight:bold;">@${req}</span><div style="display:flex; gap:6px;"><button onclick="socket.emit('handle_request', { requester: '${req}', action: 'accept' })" style="background:#00a884; border:none; padding:6px 12px; border-radius:6px; font-weight:bold; cursor:pointer;">Accept</button><button onclick="socket.emit('handle_request', { requester: '${req}', action: 'ignore' })" style="background:#202c33; color:#8696a0; border:1px solid #2a3942; padding:6px 10px; border-radius:6px; cursor:pointer;">✖</button></div></div>`;
+                    const row = document.createElement('div');
+                    row.style.cssText = "background:#111b21; padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;";
+                    row.innerHTML = `
+                        <span style="color:#e9edef; font-weight:bold;">@${req}</span>
+                        <div style="display:flex; gap:6px;">
+                            <button class="accept-btn" style="background:#00a884; border:none; padding:6px 12px; border-radius:6px; font-weight:bold; cursor:pointer;">Accept</button>
+                            <button class="ignore-btn" style="background:#202c33; color:#8696a0; border:1px solid #2a3942; padding:6px 10px; border-radius:6px; cursor:pointer;">✖</button>
+                        </div>`;
+
+                    row.querySelector('.accept-btn').onclick = () => {
+                        socket.emit('handle_request', { requester: req, action: 'accept' });
+                        document.getElementById('notifications-modal').style.display = 'none';
+                    };
+
+                    row.querySelector('.ignore-btn').onclick = () => {
+                        socket.emit('handle_request', { requester: req, action: 'ignore' });
+                    };
+
+                    list.appendChild(row);
                 });
             }
 
