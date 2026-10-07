@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Yaply — Official</title>
+    
+    <!-- Google Search Verification -->
+    <meta name="google-site-verification" content="iSXqLPQd_trKqyqOdNoYuz6uNfr09WkWLAK55RCGTps" />
+    
     <!-- SEO & Web Previews -->
     <meta name="description" content="Yaply — A secure, fast, and professional social messaging platform.">
     <meta property="og:title" content="Yaply Messenger">
@@ -221,7 +225,6 @@
         </div>
     </div>
 
-    <!-- Load Socket.IO from the local server -->
     <script src="/socket.io/socket.io.js"></script>
     
     <script>
@@ -235,22 +238,18 @@
             measurementId: "G-KEC4EM7951"
         };
 
-        // 1. Initialize Firebase FIRST so the button always has power
         firebase.initializeApp(firebaseConfig);
 
-        // 2. Attach the login button listener directly (Crash-Proof)
         document.getElementById('google-login-btn').addEventListener('click', () => {
             const provider = new firebase.auth.GoogleAuthProvider();
             firebase.auth().signInWithPopup(provider).catch(err => alert("Google Login Error: " + err.message));
         });
 
-        // 3. Verify the Node server is actually running
         if (typeof io === 'undefined') {
             alert("CRITICAL ERROR: Cannot find the Node.js Server!\n\nMake sure you are typing http://localhost:3000 in your browser, NOT double-clicking the raw index.html file.");
             document.getElementById('google-login-btn').innerText = "Server Disconnected ❌";
             document.getElementById('google-login-btn').style.background = "#f24e1e";
         } else {
-            // ONLY load the rest of the app if the server is healthy
             const socket = io();
 
             let myUser = null;
