@@ -161,15 +161,7 @@ io.on('connection', (socket) => {
         chatHistory[chatKey].push(chatData);
 
         if (isGroup) {
-            if (recipientOrGroup === 'Yaply') {
-                // Broadcast to all connected clients for global Yaply channel
-                io.emit('receive_message', chatData);
-            } else {
-                const grp = groups[recipientOrGroup];
-                if (grp) {
-                    grp.members.forEach(m => io.to(m).emit('receive_message', chatData));
-                }
-            }
+            io.emit('receive_message', chatData);
         } else {
             io.to(recipientOrGroup).emit('receive_message', chatData);
             socket.emit('receive_message', chatData);
@@ -185,8 +177,7 @@ io.on('connection', (socket) => {
         if (msg) {
             msg.message = newText + ' (edited)';
             if (isGroup) {
-                if (recipientOrGroup === 'Yaply') io.emit('update_message', msg);
-                else groups[recipientOrGroup].members.forEach(m => io.to(m).emit('update_message', msg));
+                io.emit('update_message', msg);
             } else {
                 io.to(recipientOrGroup).emit('update_message', msg);
                 socket.emit('update_message', msg);
@@ -202,8 +193,7 @@ io.on('connection', (socket) => {
             chatHistory[chatKey] = chatHistory[chatKey].filter(m => m.id !== msgId);
         }
         if (isGroup) {
-            if (recipientOrGroup === 'Yaply') io.emit('remove_message', { msgId });
-            else groups[recipientOrGroup].members.forEach(m => io.to(m).emit('remove_message', { msgId }));
+            io.emit('remove_message', { msgId });
         } else {
             io.to(recipientOrGroup).emit('remove_message', { msgId });
             socket.emit('remove_message', { msgId });
@@ -222,8 +212,7 @@ io.on('connection', (socket) => {
             targetMsg.pinned = newState;
 
             if (isGroup) {
-                if (recipientOrGroup === 'Yaply') io.emit('update_message', targetMsg);
-                else groups[recipientOrGroup].members.forEach(m => io.to(m).emit('update_message', targetMsg));
+                io.emit('update_message', targetMsg);
             } else {
                 io.to(recipientOrGroup).emit('update_message', targetMsg);
                 socket.emit('update_message', targetMsg);
