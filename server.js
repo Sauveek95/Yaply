@@ -31,7 +31,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('register_new_user', ({ uid, username, dob, bio, pfp }) => {
-        if (usernames[username]) {
+        if (usernames[username] && usernames[username] !== uid) {
             socket.emit('registration_error', { message: 'Username is already in use! Please choose a different one.' });
             return;
         }
@@ -44,9 +44,9 @@ io.on('connection', (socket) => {
             dob,
             bio: bio || 'Hey there! I am using Yaply.',
             pfp: cleanPfp,
-            friends: [],
-            requests: [],
-            blocked: [],
+            friends: users[uid]?.friends || [],
+            requests: users[uid]?.requests || [],
+            blocked: users[uid]?.blocked || [],
             lastUsernameChange: Date.now(),
             joinDate
         };
@@ -62,7 +62,7 @@ io.on('connection', (socket) => {
         if (!user) return;
 
         if (newUsername && newUsername !== user.username) {
-            if (usernames[newUsername]) {
+            if (usernames[newUsername] && usernames[newUsername] !== socket.uid) {
                 socket.emit('profile_update_error', { message: 'Username is already taken!' });
                 return;
             }
@@ -207,31 +207,4 @@ io.on('connection', (socket) => {
         if (msg) {
             msg.pinned = !msg.pinned;
             if (isGroup) {
-                groups[recipientOrGroup].members.forEach(m => io.to(m).emit('update_message', msg));
-            } else {
-                io.to(recipientOrGroup).emit('update_message', msg);
-                socket.emit('update_message', msg);
-            }
-        }
-    });
-
-    socket.on('get_chat_history', ({ chatTarget, isGroup }) => {
-        const sender = users[socket.uid];
-        if (!sender) return;
-        const chatKey = isGroup ? chatTarget : [sender.username, chatTarget].sort().join('_');
-        const history = chatHistory[chatKey] || [];
-        socket.emit('load_chat_history', { target: chatTarget, history });
-    });
-
-    socket.on('get_profile', ({ targetUsername }) => {
-        const targetUid = usernames[targetUsername];
-        if (!targetUid) return;
-        const u = users[targetUid];
-        socket.emit('profile_data', { username: u.username, bio: u.bio, pfp: u.pfp, joinDate: u.joinDate });
-    });
-});
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Yaply server running on port ${PORT}`);
-});
+                groups
