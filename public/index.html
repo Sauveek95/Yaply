@@ -240,6 +240,12 @@
 
         firebase.initializeApp(firebaseConfig);
 
+        // Keep user permanently signed in across reloads
+        firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+            .catch((error) => {
+                console.error("Auth persistence error: ", error);
+            });
+
         document.getElementById('google-login-btn').addEventListener('click', () => {
             const provider = new firebase.auth.GoogleAuthProvider();
             firebase.auth().signInWithPopup(provider).catch(err => alert("Google Login Error: " + err.message));
