@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -14,7 +15,25 @@ app.use(express.static(path.join(__dirname, 'public')));
 const users = {};        
 const usernames = {};    
 const groups = {};       
-const chatHistory = {};  
+
+const dataFile = path.join(__dirname, 'chats.json');
+let chatHistory = {};
+
+if (fs.existsSync(dataFile)) {
+    try {
+        chatHistory = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+    } catch (e) {
+        chatHistory = {};
+    }
+}
+
+function saveChatHistory() {
+    try {
+        fs.writeFileSync(dataFile, JSON.stringify(chatHistory, null, 2));
+    } catch (e) {
+        console.error("Error saving chat history:", e);
+    }
+}
 
 io.on('connection', (socket) => {
 
@@ -181,6 +200,7 @@ io.on('connection', (socket) => {
 
         if (!chatHistory[chatKey]) chatHistory[chatKey] = [];
         chatHistory[chatKey].push(chatData);
+        saveChatHistory();
 
         if (isGroup) {
             io.emit('receive_message', chatData);
@@ -198,6 +218,7 @@ io.on('connection', (socket) => {
         const msg = history.find(m => m.id === msgId && m.sender === sender.username);
         if (msg) {
             msg.message = newText + ' (edited)';
+            saveChatHistory();
             if (isGroup) {
                 io.emit('update_message', msg);
             } else {
@@ -213,6 +234,7 @@ io.on('connection', (socket) => {
         const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
         if (chatHistory[chatKey]) {
             chatHistory[chatKey] = chatHistory[chatKey].filter(m => m.id !== msgId);
+            saveChatHistory();
         }
         if (isGroup) {
             io.emit('remove_message', { msgId });
@@ -232,6 +254,7 @@ io.on('connection', (socket) => {
             const newState = !targetMsg.pinned;
             history.forEach(m => m.pinned = false);
             targetMsg.pinned = newState;
+            saveChatHistory();
 
             if (isGroup) {
                 io.emit('update_message', targetMsg);
