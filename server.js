@@ -2,7 +2,20 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const fs = require('fs');
+const admin = require('firebase-admin');
+
+// Initialize Firebase Admin for Firestore storage
+// (Ensure your firebase-adminsdk json key is added to Render environment or project root if needed)
+try {
+    admin.initializeApp({
+        credential: admin.credential.applicationDefault()
+    });
+} catch (e) {
+    // Fallback initialization if default credentials aren't set up yet
+    admin.initializeApp();
+}
+
+const db = admin.firestore();
 
 const app = express();
 const server = http.createServer(app);
@@ -15,26 +28,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 const users = {};        
 const usernames = {};    
 const groups = {};       
-
-// Persistent disk storage for chat history
-const dataFile = path.join(__dirname, 'chats.json');
-let chatHistory = {};
-
-if (fs.existsSync(dataFile)) {
-    try {
-        chatHistory = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
-    } catch (e) {
-        chatHistory = {};
-    }
-}
-
-function saveChatHistory() {
-    try {
-        fs.writeFileSync(dataFile, JSON.stringify(chatHistory, null, 2));
-    } catch (e) {
-        console.error("Error saving chat history:", e);
-    }
-}
 
 io.on('connection', (socket) => {
 
@@ -187,7 +180,7 @@ io.on('connection', (socket) => {
         });
     });
 
-    socket.on('chat_message', ({ recipientOrGroup, message, timestamp, isGroup, isAudio }) => {
+    socket.on('chat_message', async ({ recipientOrGroup, message, timestamp, isGroup, isAudio }) => {
         const sender = users[socket.uid];
         if (!sender) return;
 
@@ -199,9 +192,11 @@ io.on('connection', (socket) => {
         const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
         const chatData = { id: msgId, sender: sender.username, message, pfp: sender.pfp, timestamp, target: recipientOrGroup, isAudio: !!isAudio, pinned: false };
 
-        if (!chatHistory[chatKey]) chatHistory[chatKey] = [];
-        chatHistory[chatKey].push(chatData);
-        saveChatHistory();
+        try {
+            await db.collection('chats').doc(chatKey).collection('messages').doc(msgId).set(chatData);
+        } catch (e) {
+            console.error("Firestore write error:", e);
+        }
 
         if (isGroup) {
             io.emit('receive_message', chatData);
@@ -211,67 +206,103 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('edit_message', ({ recipientOrGroup, msgId, newText, isGroup }) => {
+    socket.on('edit_message', async ({ recipientOrGroup, msgId, newText, isGroup }) => {
         const sender = users[socket.uid];
         if (!sender) return;
         const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
-        const history = chatHistory[chatKey] || [];
-        const msg = history.find(m => m.id === msgId && m.sender === sender.username);
-        if (msg) {
-            msg.message = newText + ' (edited)';
-            saveChatHistory();
-            if (isGroup) {
-                io.emit('update_message', msg);
-            } else {
-                io.to(recipientOrGroup).emit('update_message', msg);
-                socket.emit('update_message', msg);
+        
+        try {
+            const msgRef = db.collection('chats').doc(chatKey).collection('messages').doc(msgId);
+            const doc = await msgRef.get();
+            if (doc.exists && doc.data().sender === sender.username) {
+                const newMsg = doc.data();
+                newMsg.message = newText + ' (edited)';
+                await msgRef.update({ message: newMsg.message });
+                
+                if (isGroup) {
+                    io.emit('update_message', newMsg);
+                } else {
+                    io.to(recipientOrGroup).emit('update_message', newMsg);
+                    socket.emit('update_message', newMsg);
+                }
             }
+        } catch (e) {
+            console.error("Firestore edit error:", e);
         }
     });
 
-    socket.on('delete_message', ({ recipientOrGroup, msgId, isGroup }) => {
+    socket.on('delete_message', async ({ recipientOrGroup, msgId, isGroup }) => {
         const sender = users[socket.uid];
         if (!sender) return;
         const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
-        if (chatHistory[chatKey]) {
-            chatHistory[chatKey] = chatHistory[chatKey].filter(m => m.id !== msgId);
-            saveChatHistory();
-        }
-        if (isGroup) {
-            io.emit('remove_message', { msgId });
-        } else {
-            io.to(recipientOrGroup).emit('remove_message', { msgId });
-            socket.emit('remove_message', { msgId });
-        }
-    });
-
-    socket.on('pin_message', ({ recipientOrGroup, msgId, isGroup }) => {
-        const sender = users[socket.uid];
-        if (!sender) return;
-        const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
-        const history = chatHistory[chatKey] || [];
-        const targetMsg = history.find(m => m.id === msgId);
-        if (targetMsg) {
-            const newState = !targetMsg.pinned;
-            history.forEach(m => m.pinned = false);
-            targetMsg.pinned = newState;
-            saveChatHistory();
-
+        
+        try {
+            await db.collection('chats').doc(chatKey).collection('messages').doc(msgId).delete();
             if (isGroup) {
-                io.emit('update_message', targetMsg);
+                io.emit('remove_message', { msgId });
             } else {
-                io.to(recipientOrGroup).emit('update_message', targetMsg);
-                socket.emit('update_message', targetMsg);
+                io.to(recipientOrGroup).emit('remove_message', { msgId });
+                socket.emit('remove_message', { msgId });
             }
+        } catch (e) {
+            console.error("Firestore delete error:", e);
         }
     });
 
-    socket.on('get_chat_history', ({ chatTarget, isGroup }) => {
+    socket.on('pin_message', async ({ recipientOrGroup, msgId, isGroup }) => {
+        const sender = users[socket.uid];
+        if (!sender) return;
+        const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
+        
+        try {
+            const messagesRef = db.collection('chats').doc(chatKey).collection('messages');
+            const snapshot = await messagesRef.get();
+            
+            let targetMsg = null;
+            const batch = db.batch();
+            
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (doc.id === msgId) {
+                    targetMsg = data;
+                    targetMsg.pinned = !targetMsg.pinned;
+                    batch.update(doc.ref, { pinned: targetMsg.pinned });
+                } else if (data.pinned) {
+                    batch.update(doc.ref, { pinned: false });
+                }
+            });
+            
+            await batch.commit();
+
+            if (targetMsg) {
+                if (isGroup) {
+                    io.emit('update_message', targetMsg);
+                } else {
+                    io.to(recipientOrGroup).emit('update_message', targetMsg);
+                    socket.emit('update_message', targetMsg);
+                }
+            }
+        } catch (e) {
+            console.error("Firestore pin error:", e);
+        }
+    });
+
+    socket.on('get_chat_history', async ({ chatTarget, isGroup }) => {
         const sender = users[socket.uid];
         if (!sender) return;
         const chatKey = isGroup ? chatTarget : [sender.username, chatTarget].sort().join('_');
-        const history = chatHistory[chatKey] || [];
-        socket.emit('load_chat_history', { target: chatTarget, history });
+        
+        try {
+            const snapshot = await db.collection('chats').doc(chatKey).collection('messages').get();
+            const history = [];
+            snapshot.forEach(doc => history.push(doc.data()));
+            // Sort by message ID generation time to maintain chronological order
+            history.sort((a, b) => a.id.localeCompare(b.id));
+            socket.emit('load_chat_history', { target: chatTarget, history });
+        } catch (e) {
+            console.error("Firestore history error:", e);
+            socket.emit('load_chat_history', { target: chatTarget, history: [] });
+        }
     });
 
     socket.on('get_profile', ({ targetUsername }) => {
