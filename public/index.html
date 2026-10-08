@@ -270,10 +270,10 @@
         firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL)
             .catch((error) => { console.error("Auth persistence error: ", error); });
 
-        // Using signInWithRedirect to completely avoid popup blocking issues on mobile/desktop browsers
+        // Restored original popup login method
         document.getElementById('google-login-btn').addEventListener('click', () => {
             const provider = new firebase.auth.GoogleAuthProvider();
-            firebase.auth().signInWithRedirect(provider).catch(err => alert("Google Login Error: " + err.message));
+            firebase.auth().signInWithPopup(provider).catch(err => alert("Google Login Error: " + err.message));
         });
 
         if (typeof io === 'undefined') {
@@ -335,15 +335,6 @@
                     };
                     reader.readAsDataURL(file);
                 }
-            });
-
-            // Handle redirect result and auth state change smoothly
-            firebase.auth().getRedirectResult().then((result) => {
-                if (result.user) {
-                    socket.emit('check_auth', { uid: result.user.uid });
-                }
-            }).catch((error) => {
-                console.error("Redirect login error:", error);
             });
 
             firebase.auth().onAuthStateChanged((user) => {
