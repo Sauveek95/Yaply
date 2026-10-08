@@ -270,7 +270,6 @@
         firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL)
             .catch((error) => { console.error("Auth persistence error: ", error); });
 
-        // Restored original popup login method
         document.getElementById('google-login-btn').addEventListener('click', () => {
             const provider = new firebase.auth.GoogleAuthProvider();
             firebase.auth().signInWithPopup(provider).catch(err => alert("Google Login Error: " + err.message));
@@ -288,6 +287,7 @@
             let selectedPfpBase64 = '';
             let editPfpBase64 = '';
             let chatMeta = {};
+            const cachedHistories = {};
 
             let peerConnection = null;
             let localStream = null;
@@ -478,6 +478,7 @@
             }
 
             function switchChat(targetId, isGroup, displayName) {
+                if (activeChat === targetId) return;
                 activeChat = targetId;
                 isGroupChat = isGroup;
                 document.getElementById('current-chat-title').innerText = isGroup ? `# ${displayName || targetId}` : `@ ${targetId}`;
@@ -485,6 +486,15 @@
 
                 renderSidebar();
                 checkChannelLock();
+
+                // Instantly render from cache if available while fetching fresh history
+                const container = document.getElementById('messages-container');
+                container.innerHTML = '';
+                if (cachedHistories[targetId]) {
+                    cachedHistories[targetId].forEach(appendMessage);
+                    container.scrollTop = container.scrollHeight;
+                }
+
                 socket.emit('get_chat_history', { chatTarget: targetId, isGroup });
             }
 
@@ -498,6 +508,7 @@
             }
 
             socket.on('load_chat_history', ({ target, history }) => {
+                cachedHistories[target] = history;
                 if (activeChat !== target) return;
                 const container = document.getElementById('messages-container');
                 container.innerHTML = '';
@@ -512,6 +523,17 @@
                 const input = document.getElementById('message-input');
                 const message = input.value.trim();
                 if (!message || !activeChat) return;
+
+                // Optimistic UI update: render instantly
+                const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const optimisticData = { sender: myUser.username, message, pfp: myUser.pfp, timestamp, target: activeChat };
+                
+                if (!cachedHistories[activeChat]) cachedHistories[activeChat] = [];
+                cachedHistories[activeChat].push(optimisticData);
+
+                appendMessage(optimisticData);
+                document.getElementById('messages-container').scrollTop = document.getElementById('messages-container').scrollHeight;
+
                 socket.emit('chat_message', { recipientOrGroup: activeChat, message, isGroup: isGroupChat });
                 input.value = '';
             }
@@ -519,14 +541,22 @@
             socket.on('receive_message', (data) => {
                 const chatKey = (data.target === 'Yaply' || data.target.startsWith('group_') || data.target === myUser.username) ? (data.target === myUser.username ? data.sender : data.target) : data.target;
 
+                if (!cachedHistories[chatKey]) cachedHistories[chatKey] = [];
+                // Avoid duplicating optimistic self-messages
+                if (!(data.sender === myUser.username && cachedHistories[chatKey].some(m => m.message === data.message && m.timestamp === data.timestamp))) {
+                    cachedHistories[chatKey].push(data);
+                }
+
                 if (chatMeta[chatKey]) {
                     chatMeta[chatKey].lastMsg = `${data.sender === myUser.username ? 'You: ' : ''}${data.message}`;
                     if (activeChat !== chatKey && !chatMeta[chatKey].muted) chatMeta[chatKey].unread++;
                 }
 
                 if (activeChat === chatKey) {
-                    appendMessage(data);
-                    document.getElementById('messages-container').scrollTop = document.getElementById('messages-container').scrollHeight;
+                    const container = document.getElementById('messages-container');
+                    container.innerHTML = '';
+                    cachedHistories[chatKey].forEach(appendMessage);
+                    container.scrollTop = container.scrollHeight;
                 }
                 renderSidebar();
             });
