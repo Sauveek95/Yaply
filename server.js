@@ -5,7 +5,10 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+// Increased buffer size to 10MB to prevent 413 errors on large profile pictures
+const io = new Server(server, {
+    maxHttpBufferSize: 10 * 1024 * 1024
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 
