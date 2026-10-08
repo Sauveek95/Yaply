@@ -5,10 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Yaply — Official</title>
     
-    <!-- Google Search Verification -->
     <meta name="google-site-verification" content="iSXqLPQd_trKqyqOdNoYuz6uNfr09WkWLAK55RCGTps" />
-    
-    <!-- SEO & Web Previews -->
     <meta name="description" content="Yaply — A secure, fast, and professional social messaging platform.">
     <meta property="og:title" content="Yaply Messenger">
     <meta property="og:description" content="Join Yaply to chat, call, and connect securely.">
@@ -110,7 +107,6 @@
         </div>
     </div>
 
-    <!-- Manage Profile Modal -->
     <div id="edit-profile-modal" class="modal" style="display: none;">
         <div class="modal-content" style="width: 380px;">
             <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
@@ -379,7 +375,6 @@
                 document.getElementById('username-modal').style.display = 'flex';
             });
 
-            // Manage Profile Setup
             document.getElementById('menu-edit-profile').addEventListener('click', () => {
                 document.getElementById('ep-current-img').src = myUser.pfp;
                 document.getElementById('ep-username').value = myUser.username;
@@ -418,7 +413,6 @@
                 switchChat('Yaply', true, 'Yaply');
             }
 
-            // Groups UI
             document.getElementById('menu-create-group').addEventListener('click', () => {
                 document.getElementById('create-group-modal').style.display = 'flex';
                 const list = document.getElementById('group-friends-list');
@@ -487,7 +481,6 @@
                 renderSidebar();
                 checkChannelLock();
 
-                // Instantly render from cache if available while fetching fresh history
                 const container = document.getElementById('messages-container');
                 container.innerHTML = '';
                 if (cachedHistories[targetId]) {
@@ -524,7 +517,6 @@
                 const message = input.value.trim();
                 if (!message || !activeChat) return;
 
-                // Optimistic UI update: render instantly
                 const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 const optimisticData = { sender: myUser.username, message, pfp: myUser.pfp, timestamp, target: activeChat };
                 
@@ -534,6 +526,11 @@
                 appendMessage(optimisticData);
                 document.getElementById('messages-container').scrollTop = document.getElementById('messages-container').scrollHeight;
 
+                if (chatMeta[activeChat]) {
+                    chatMeta[activeChat].lastMsg = `You: ${message}`;
+                }
+                renderSidebar();
+
                 socket.emit('chat_message', { recipientOrGroup: activeChat, message, isGroup: isGroupChat });
                 input.value = '';
             }
@@ -542,8 +539,10 @@
                 const chatKey = (data.target === 'Yaply' || data.target.startsWith('group_') || data.target === myUser.username) ? (data.target === myUser.username ? data.sender : data.target) : data.target;
 
                 if (!cachedHistories[chatKey]) cachedHistories[chatKey] = [];
-                // Avoid duplicating optimistic self-messages
-                if (!(data.sender === myUser.username && cachedHistories[chatKey].some(m => m.message === data.message && m.timestamp === data.timestamp))) {
+                
+                // Prevent adding duplicate messages from echoes
+                const isDuplicate = cachedHistories[chatKey].some(m => m.message === data.message && m.sender === data.sender);
+                if (!isDuplicate) {
                     cachedHistories[chatKey].push(data);
                 }
 
@@ -602,7 +601,6 @@
                 }
             };
 
-            // Search, Blocks, Friends
             document.getElementById('search-btn').addEventListener('click', () => { document.getElementById('search-modal').style.display = 'flex'; document.getElementById('search-input').value = ''; document.getElementById('search-results').innerHTML = ''; });
             document.getElementById('search-input').addEventListener('input', (e) => socket.emit('search_user', { query: e.target.value }));
 
@@ -702,7 +700,6 @@
                 document.getElementById('view-profile-modal').style.display = 'flex';
             });
 
-            // Video & Voice Calls
             document.getElementById('video-trigger-btn').addEventListener('click', () => initiateCall('video'));
             document.getElementById('voice-trigger-btn').addEventListener('click', () => initiateCall('voice'));
 
