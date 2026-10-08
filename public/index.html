@@ -296,7 +296,21 @@
             let selectedPfpBase64 = '';
             let editPfpBase64 = '';
             let chatMeta = {};
-            const cachedHistories = {};
+            
+            // Load cached histories from browser localStorage so refreshes never wipe chats
+            let cachedHistories = {};
+            try {
+                const savedChats = localStorage.getItem('yaply_cached_histories');
+                if (savedChats) cachedHistories = JSON.parse(savedChats);
+            } catch (e) {
+                cachedHistories = {};
+            }
+
+            function saveLocalHistories() {
+                try {
+                    localStorage.setItem('yaply_cached_histories', JSON.stringify(cachedHistories));
+                } catch (e) {}
+            }
 
             let mediaRecorder = null;
             let audioChunks = [];
@@ -548,11 +562,14 @@
             }
 
             socket.on('load_chat_history', ({ target, history }) => {
-                cachedHistories[target] = history;
+                if (history && history.length > 0) {
+                    cachedHistories[target] = history;
+                    saveLocalHistories();
+                }
                 if (activeChat !== target) return;
                 const container = document.getElementById('messages-container');
                 container.innerHTML = '';
-                history.forEach(appendMessage);
+                (cachedHistories[target] || []).forEach(appendMessage);
                 container.scrollTop = container.scrollHeight;
                 updatePinnedBanner();
             });
@@ -575,6 +592,7 @@
 
                 if (!cachedHistories[chatKey]) cachedHistories[chatKey] = [];
                 cachedHistories[chatKey].push(data);
+                saveLocalHistories();
 
                 if (chatMeta[chatKey]) {
                     chatMeta[chatKey].lastMsg = `${data.sender === myUser.username ? 'You: ' : ''}${data.isAudio ? 'Voice message' : data.message}`;
@@ -583,7 +601,7 @@
 
                 if (activeChat === chatKey) {
                     appendMessage(data);
-                    document.getElementById('messages-container').scrollTop = document.getElementById('messages-container').scrollHeight;
+                    document.getElementById('messages-container').scrollTop = document.getElementById('messages-container'].scrollHeight;
                     updatePinnedBanner();
                 }
                 renderSidebar();
@@ -595,6 +613,7 @@
                     let idx = list.findIndex(m => m.id === updatedMsg.id);
                     if (idx !== -1) {
                         list[idx] = updatedMsg;
+                        saveLocalHistories();
                         if (activeChat === key) {
                             refreshChatWindow(key);
                             updatePinnedBanner();
@@ -606,6 +625,7 @@
             socket.on('remove_message', ({ msgId }) => {
                 for (let key in cachedHistories) {
                     cachedHistories[key] = cachedHistories[key].filter(m => m.id !== msgId);
+                    saveLocalHistories();
                     if (activeChat === key) {
                         refreshChatWindow(key);
                         updatePinnedBanner();
@@ -686,17 +706,61 @@
                             <div><div style="font-weight:bold; color:#e9edef;">@${u.username}</div><div style="font-size:0.75rem; color:#8696a0;">${u.bio}</div></div>
                         </div>
                         <div style="display:flex; gap:6px;">
-                            <button class="add-btn" style="background:#00a884; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;">➕</button>
-                            <button class="chat-btn" style="background:#202c33; color:#fff; border:1px solid #2a3942; padding:6px 10px; border-radius:6px; cursor:pointer;">💬</button>
+                            <button class="add-btn" style="background:#00a884; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;" title="Add Friend">➕</button>
+                            <button class="chat-btn" style="background:#202c33; color:#fff; border:1px solid #2a3942; padding:6px 10px; border-radius:6px; cursor:pointer;" title="Chat">💬</button>
+                            <button class="block-btn" style="background:#f24e1e; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;" title="Block">🚫</button>
                         </div>`;
                     row.querySelector('.add-btn').onclick = () => { socket.emit('send_friend_request', { targetUsername: u.username }); alert('Request sent!'); };
                     row.querySelector('.chat-btn').onclick = () => { document.getElementById('search-modal').style.display = 'none'; if (!myUser.friends.includes(u.username)) myUser.friends.push(u.username); switchChat(u.username, false); };
+                    row.querySelector('.block-btn').onclick = () => { if (confirm(`Block @${u.username}?`)) { socket.emit('block_user', { targetUsername: u.username }); document.getElementById('search-modal').style.display = 'none'; } };
                     list.appendChild(row);
                 });
             });
 
             document.getElementById('dots-btn').addEventListener('click', (e) => { e.stopPropagation(); const m = document.getElementById('dots-menu'); m.style.display = m.style.display === 'block' ? 'none' : 'block'; });
+            document.getElementById('menu-blocked').addEventListener('click', () => { document.getElementById('blocked-modal').style.display = 'flex'; renderBlockedList(); });
             document.getElementById('menu-logout').addEventListener('click', () => firebase.auth().signOut().then(() => window.location.reload()));
+            
+            function renderBlockedList() {
+                const list = document.getElementById('blocked-list');
+                list.innerHTML = (!myUser.blocked || myUser.blocked.length === 0) ? `<div style="text-align:center; color:#8696a0;">No blocked accounts</div>` : '';
+                (myUser.blocked || []).forEach(b => {
+                    list.innerHTML += `<div style="background:#111b21; padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;"><span style="color:#e9edef; font-weight:bold;">@${b}</span><button onclick="socket.emit('unblock_user', { targetUsername: '${b}' })" style="background:#202c33; color:#00a884; border:1px solid #00a884; padding:5px 12px; border-radius:6px; cursor:pointer;">Unblock</button></div>`;
+                });
+            }
+            socket.on('update_blocked', ({ blocked }) => { myUser.blocked = blocked; renderBlockedList(); });
+
+            document.getElementById('notif-bell').addEventListener('click', () => document.getElementById('notifications-modal').style.display = 'flex');
+            socket.on('update_requests', ({ requests }) => { myUser.requests = requests; renderNotifications(); });
+            socket.on('update_friends', ({ friends }) => { myUser.friends = friends; renderSidebar(); });
+
+            function renderNotifications() {
+                document.getElementById('notif-badge').style.display = myUser.requests.length > 0 ? 'block' : 'none';
+                document.getElementById('notif-badge').innerText = myUser.requests.length;
+                const list = document.getElementById('notif-list');
+                list.innerHTML = myUser.requests.length === 0 ? '<div style="color:#8696a0; text-align:center;">No new requests</div>' : '';
+                
+                myUser.requests.forEach(req => {
+                    const row = document.createElement('div');
+                    row.style.cssText = "background:#111b21; padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;";
+                    row.innerHTML = `
+                        <span style="color:#e9edef; font-weight:bold;">@${req}</span>
+                        <div style="display:flex; gap:6px;">
+                            <button class="accept-btn" style="background:#00a884; border:none; padding:6px 12px; border-radius:6px; font-weight:bold; cursor:pointer;">Accept</button>
+                            <button class="ignore-btn" style="background:#202c33; color:#8696a0; border:1px solid #2a3942; padding:6px 10px; border-radius:6px; cursor:pointer;">✖</button>
+                        </div>`;
+
+                    row.querySelector('.accept-btn').onclick = () => {
+                        socket.emit('handle_request', { requester: req, action: 'accept' });
+                        document.getElementById('notifications-modal').style.display = 'none';
+                    };
+                    row.querySelector('.ignore-btn').onclick = () => {
+                        socket.emit('handle_request', { requester: req, action: 'ignore' });
+                    };
+                    list.appendChild(row);
+                });
+            }
+
             document.getElementById('my-profile-trigger').addEventListener('click', () => socket.emit('get_profile', { targetUsername: myUser.username }));
             socket.on('profile_data', (profile) => {
                 document.getElementById('vp-img').src = profile.pfp;
