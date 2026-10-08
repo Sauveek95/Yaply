@@ -296,9 +296,8 @@
             let selectedPfpBase64 = '';
             let editPfpBase64 = '';
             let chatMeta = {};
-            
-            // Load cached histories from browser localStorage so refreshes never wipe chats
             let cachedHistories = {};
+            
             try {
                 const savedChats = localStorage.getItem('yaply_cached_histories');
                 if (savedChats) cachedHistories = JSON.parse(savedChats);
@@ -601,7 +600,7 @@
 
                 if (activeChat === chatKey) {
                     appendMessage(data);
-                    document.getElementById('messages-container').scrollTop = document.getElementById('messages-container'].scrollHeight;
+                    document.getElementById('messages-container').scrollTop = document.getElementById('messages-container').scrollHeight;
                     updatePinnedBanner();
                 }
                 renderSidebar();
