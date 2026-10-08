@@ -48,23 +48,29 @@
         .upi-box { background: #111b21; color: #00a884; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 0.9rem; user-select: all; border: 1px solid #2a3942; font-weight: bold; }
 
         #main-chat { flex: 1; display: flex; flex-direction: column; background: #0b141a; }
-        #chat-header { padding: 12px 20px; background: #202c33; border-bottom: 1px solid #222d34; display: flex; justify-content: space-between; align-items: center; }
+        #chat-header { padding: 10px 20px; background: #202c33; border-bottom: 1px solid #222d34; display: flex; flex-direction: column; gap: 6px; }
+        .chat-header-top { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+        
+        #pinned-banner { display: none; background: #111b21; border-left: 4px solid #00a884; padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; cursor: pointer; align-items: center; justify-content: space-between; }
+        #pinned-banner:hover { background: #182229; }
+
         #messages-container { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; background-image: radial-gradient(#1f2c34 1px, transparent 1px); background-size: 24px 24px; }
 
         .message-row { display: flex; gap: 10px; align-items: flex-end; max-width: 70%; position: relative; }
         .message-row.incoming { align-self: flex-start; }
         .message-row.outgoing { align-self: flex-end; flex-direction: row-reverse; }
-        .message-bubble { padding: 10px 14px; border-radius: 8px; word-break: break-word; font-size: 0.95rem; }
+        .message-bubble { padding: 10px 14px; border-radius: 8px; word-break: break-word; font-size: 0.95rem; transition: background 0.3s; }
         .message-row.incoming .message-bubble { background: #202c33; border-bottom-left-radius: 0; }
         .message-row.outgoing .message-bubble { background: #005c4b; border-bottom-right-radius: 0; }
+        .message-bubble.highlight { background: #00a884 !important; color: #111b21; }
         .msg-pfp { width: 34px; height: 34px; border-radius: 50%; cursor: pointer; object-fit: cover; }
         .timestamp { font-size: 0.65rem; color: #8696a0; float: right; margin-left: 10px; margin-top: 5px; }
 
         #input-area { padding: 12px 18px; background: #202c33; display: flex; align-items: center; gap: 10px; }
         #message-input { flex: 1; padding: 12px 16px; border-radius: 8px; border: none; background: #2a3942; color: #fff; outline: none; }
 
-        #msg-context-menu { display: none; position: absolute; background: #202c33; border: 1px solid #2a3942; border-radius: 8px; z-index: 2500; flex-direction: column; overflow: hidden; box-shadow: 0 6px 16px rgba(0,0,0,0.5); width: 150px; }
-        .msg-ctx-item { padding: 10px 14px; cursor: pointer; color: #e9edef; font-size: 0.85rem; transition: background 0.15s; }
+        #msg-context-menu { display: none; position: fixed; background: #202c33; border: 1px solid #2a3942; border-radius: 8px; z-index: 2500; flex-direction: column; overflow: hidden; box-shadow: 0 6px 16px rgba(0,0,0,0.6); width: 170px; }
+        .msg-ctx-item { padding: 12px 16px; cursor: pointer; color: #e9edef; font-size: 0.9rem; transition: background 0.15s; user-select: none; }
         .msg-ctx-item:hover { background: #2a3942; }
 
         #call-screen { display: none; position: fixed; inset: 0; background: #111b21; z-index: 2000; flex-direction: column; align-items: center; justify-content: center; gap: 20px; }
@@ -234,10 +240,16 @@
 
         <div id="main-chat">
             <div id="chat-header">
-                <h3 id="current-chat-title" style="color: #e9edef;"># Yaply</h3>
-                <div style="display:flex; gap:10px;">
-                    <button id="voice-trigger-btn" style="background: transparent; border: none; font-size: 1.4rem; cursor: pointer;" title="Voice Call">📞</button>
-                    <button id="video-trigger-btn" style="background: transparent; border: none; font-size: 1.4rem; cursor: pointer;" title="Video Call">📹</button>
+                <div class="chat-header-top">
+                    <h3 id="current-chat-title" style="color: #e9edef;"># Yaply</h3>
+                    <div style="display:flex; gap:10px;">
+                        <button id="voice-trigger-btn" style="background: transparent; border: none; font-size: 1.4rem; cursor: pointer;" title="Voice Call">📞</button>
+                        <button id="video-trigger-btn" style="background: transparent; border: none; font-size: 1.4rem; cursor: pointer;" title="Video Call">📹</button>
+                    </div>
+                </div>
+                <div id="pinned-banner">
+                    <div id="pinned-banner-text" style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1;"></div>
+                    <span style="font-size: 0.75rem; color: #00a884; font-weight: bold; margin-left: 10px;">PINNED</span>
                 </div>
             </div>
             <div id="messages-container"></div>
@@ -324,6 +336,8 @@
             };
 
             let selectedMsgIdForContext = null;
+            let activePinnedMsgId = null;
+
             window.addEventListener('click', (e) => {
                 if (e.target.classList.contains('modal')) e.target.style.display = 'none';
                 document.getElementById('dots-menu').style.display = 'none';
@@ -493,8 +507,36 @@
                     container.scrollTop = container.scrollHeight;
                 }
 
+                updatePinnedBanner();
                 socket.emit('get_chat_history', { chatTarget: targetId, isGroup });
             }
+
+            function updatePinnedBanner() {
+                const history = cachedHistories[activeChat] || [];
+                const pinnedMsg = history.find(m => m.pinned);
+                const banner = document.getElementById('pinned-banner');
+                const bannerText = document.getElementById('pinned-banner-text');
+
+                if (pinnedMsg) {
+                    activePinnedMsgId = pinnedMsg.id;
+                    bannerText.innerHTML = `<b>${pinnedMsg.sender}:</b> ${pinnedMsg.isAudio ? 'Voice message' : pinnedMsg.message}`;
+                    banner.style.display = 'flex';
+                } else {
+                    activePinnedMsgId = null;
+                    banner.style.display = 'none';
+                }
+            }
+
+            document.getElementById('pinned-banner').onclick = () => {
+                if (!activePinnedMsgId) return;
+                const targetRow = document.querySelector(`[data-msgid="${activePinnedMsgId}"]`);
+                if (targetRow) {
+                    targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    const bubble = targetRow.querySelector('.message-bubble');
+                    bubble.classList.add('highlight');
+                    setTimeout(() => bubble.classList.remove('highlight'), 2000);
+                }
+            };
 
             function checkChannelLock() {
                 const inputArea = document.getElementById('input-area');
@@ -512,6 +554,7 @@
                 container.innerHTML = '';
                 history.forEach(appendMessage);
                 container.scrollTop = container.scrollHeight;
+                updatePinnedBanner();
             });
 
             document.getElementById('send-btn').addEventListener('click', sendMessage);
@@ -541,6 +584,7 @@
                 if (activeChat === chatKey) {
                     appendMessage(data);
                     document.getElementById('messages-container').scrollTop = document.getElementById('messages-container').scrollHeight;
+                    updatePinnedBanner();
                 }
                 renderSidebar();
             });
@@ -553,6 +597,7 @@
                         list[idx] = updatedMsg;
                         if (activeChat === key) {
                             refreshChatWindow(key);
+                            updatePinnedBanner();
                         }
                     }
                 }
@@ -563,6 +608,7 @@
                     cachedHistories[key] = cachedHistories[key].filter(m => m.id !== msgId);
                     if (activeChat === key) {
                         refreshChatWindow(key);
+                        updatePinnedBanner();
                     }
                 }
             });
@@ -584,9 +630,6 @@
                 if (data.isAudio) {
                     contentHtml = `<audio controls src="${data.message}" style="height: 35px; width: 200px;"></audio>`;
                 }
-                if (data.pinned) {
-                    contentHtml = `📌 <small style="color:#00a884;">Pinned</small><br>` + contentHtml;
-                }
 
                 row.innerHTML = `
                     ${!isSelf ? `<img src="${data.pfp}" class="msg-pfp">` : ''}
@@ -601,9 +644,11 @@
                     selectedMsgIdForContext = data.id;
                     const menu = document.getElementById('msg-context-menu');
                     menu.style.display = 'flex';
-                    menu.style.left = e.pageX + 'px';
-                    menu.style.top = e.pageY + 'px';
+                    menu.style.left = Math.min(e.pageX, window.innerWidth - 180) + 'px';
+                    menu.style.top = Math.min(e.pageY, window.innerHeight - 150) + 'px';
+                    
                     document.getElementById('msg-ctx-edit').style.display = isSelf && !data.isAudio ? 'block' : 'none';
+                    document.getElementById('msg-ctx-pin').innerText = data.pinned ? '📌 Unpin Message' : '📌 Pin Message';
                 };
 
                 container.appendChild(row);
