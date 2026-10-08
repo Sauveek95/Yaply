@@ -350,7 +350,17 @@
                 const username = document.getElementById('desired-username').value.trim();
                 const dob = document.getElementById('desired-dob').value;
                 if (!username || !dob) return alert('Username and Date of Birth are required!');
-                socket.emit('register_new_user', { uid: firebase.auth().currentUser.uid, username, dob, bio: document.getElementById('desired-bio').value.trim(), pfp: selectedPfpBase64 });
+                
+                const currentUser = firebase.auth().currentUser;
+                if (!currentUser) return alert('Authentication error. Please refresh and log in again.');
+
+                socket.emit('register_new_user', { 
+                    uid: currentUser.uid, 
+                    username, 
+                    dob, 
+                    bio: document.getElementById('desired-bio').value.trim(), 
+                    pfp: selectedPfpBase64 
+                });
             });
 
             socket.on('registration_error', ({ message }) => {
