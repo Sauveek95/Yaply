@@ -148,6 +148,11 @@ io.on('connection', (socket) => {
         const sender = users[socket.uid];
         if (!sender) return;
 
+        // Restrict global 'Yaply' channel messaging exclusively to Kyroxify
+        if (recipientOrGroup === 'Yaply' && sender.username !== 'Kyroxify') {
+            return;
+        }
+
         const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
         const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
         const chatData = { id: msgId, sender: sender.username, message, pfp: sender.pfp, timestamp, target: recipientOrGroup, isAudio: !!isAudio, pinned: false };
@@ -156,9 +161,14 @@ io.on('connection', (socket) => {
         chatHistory[chatKey].push(chatData);
 
         if (isGroup) {
-            const grp = groups[recipientOrGroup];
-            if (grp) {
-                grp.members.forEach(m => io.to(m).emit('receive_message', chatData));
+            if (recipientOrGroup === 'Yaply') {
+                // Broadcast to all connected clients for global Yaply channel
+                io.emit('receive_message', chatData);
+            } else {
+                const grp = groups[recipientOrGroup];
+                if (grp) {
+                    grp.members.forEach(m => io.to(m).emit('receive_message', chatData));
+                }
             }
         } else {
             io.to(recipientOrGroup).emit('receive_message', chatData);
@@ -175,7 +185,8 @@ io.on('connection', (socket) => {
         if (msg) {
             msg.message = newText + ' (edited)';
             if (isGroup) {
-                groups[recipientOrGroup].members.forEach(m => io.to(m).emit('update_message', msg));
+                if (recipientOrGroup === 'Yaply') io.emit('update_message', msg);
+                else groups[recipientOrGroup].members.forEach(m => io.to(m).emit('update_message', msg));
             } else {
                 io.to(recipientOrGroup).emit('update_message', msg);
                 socket.emit('update_message', msg);
@@ -191,7 +202,8 @@ io.on('connection', (socket) => {
             chatHistory[chatKey] = chatHistory[chatKey].filter(m => m.id !== msgId);
         }
         if (isGroup) {
-            groups[recipientOrGroup].members.forEach(m => io.to(m).emit('remove_message', { msgId }));
+            if (recipientOrGroup === 'Yaply') io.emit('remove_message', { msgId });
+            else groups[recipientOrGroup].members.forEach(m => io.to(m).emit('remove_message', { msgId }));
         } else {
             io.to(recipientOrGroup).emit('remove_message', { msgId });
             socket.emit('remove_message', { msgId });
@@ -203,16 +215,15 @@ io.on('connection', (socket) => {
         if (!sender) return;
         const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
         const history = chatHistory[chatKey] || [];
-        
-        // Toggle pin: unpin all others in this chat if pinning a new one, or toggle off
         const targetMsg = history.find(m => m.id === msgId);
         if (targetMsg) {
             const newState = !targetMsg.pinned;
-            history.forEach(m => m.pinned = false); // only one pin at a time like IG/WhatsApp
+            history.forEach(m => m.pinned = false);
             targetMsg.pinned = newState;
 
             if (isGroup) {
-                groups[recipientOrGroup].members.forEach(m => io.to(m).emit('update_message', targetMsg));
+                if (recipientOrGroup === 'Yaply') io.emit('update_message', targetMsg);
+                else groups[recipientOrGroup].members.forEach(m => io.to(m).emit('update_message', targetMsg));
             } else {
                 io.to(recipientOrGroup).emit('update_message', targetMsg);
                 socket.emit('update_message', targetMsg);
