@@ -149,7 +149,7 @@ io.on('connection', (socket) => {
         if (!sender) return;
 
         const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
-        const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36.substring(2, 7));
+        const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
         const chatData = { id: msgId, sender: sender.username, message, pfp: sender.pfp, timestamp, target: recipientOrGroup, isAudio: !!isAudio, pinned: false };
 
         if (!chatHistory[chatKey]) chatHistory[chatKey] = [];
@@ -162,6 +162,7 @@ io.on('connection', (socket) => {
             }
         } else {
             io.to(recipientOrGroup).emit('receive_message', chatData);
+            socket.emit('receive_message', chatData);
         }
     });
 
