@@ -348,6 +348,25 @@
                 }
             };
 
+            // Call button handlers
+            document.getElementById('voice-trigger-btn').addEventListener('click', () => {
+                document.getElementById('call-status').innerText = `Voice Call with ${activeChat}`;
+                document.getElementById('call-screen').style.display = 'flex';
+                document.getElementById('local-video-box').style.display = 'none';
+                document.getElementById('remote-video-box').style.display = 'none';
+            });
+
+            document.getElementById('video-trigger-btn').addEventListener('click', () => {
+                document.getElementById('call-status').innerText = `Video Call with ${activeChat}`;
+                document.getElementById('call-screen').style.display = 'flex';
+                document.getElementById('local-video-box').style.display = 'block';
+                document.getElementById('remote-video-box').style.display = 'block';
+            });
+
+            document.getElementById('end-call-btn').addEventListener('click', () => {
+                document.getElementById('call-screen').style.display = 'none';
+            });
+
             let selectedMsgIdForContext = null;
             let activePinnedMsgId = null;
 
