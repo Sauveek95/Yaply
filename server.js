@@ -149,10 +149,13 @@ io.on('connection', (socket) => {
         if (!sender) return;
 
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        // For direct messages, store history under a combined sorted key so both users reference the same chat log
+        const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
+        
         const chatData = { sender: sender.username, message, pfp: sender.pfp, timestamp, target: recipientOrGroup };
 
-        if (!chatHistory[recipientOrGroup]) chatHistory[recipientOrGroup] = [];
-        chatHistory[recipientOrGroup].push(chatData);
+        if (!chatHistory[chatKey]) chatHistory[chatKey] = [];
+        chatHistory[chatKey].push(chatData);
 
         if (isGroup) {
             const grp = groups[recipientOrGroup];
@@ -160,13 +163,16 @@ io.on('connection', (socket) => {
                 grp.members.forEach(m => io.to(m).emit('receive_message', chatData));
             }
         } else {
-            // Send only to recipient so sender handles message locally without server duplicate echo
             io.to(recipientOrGroup).emit('receive_message', chatData);
+            socket.emit('receive_message', chatData);
         }
     });
 
-    socket.on('get_chat_history', ({ chatTarget }) => {
-        const history = chatHistory[chatTarget] || [];
+    socket.on('get_chat_history', ({ chatTarget, isGroup }) => {
+        const sender = users[socket.uid];
+        if (!sender) return;
+        const chatKey = isGroup ? chatTarget : [sender.username, chatTarget].sort().join('_');
+        const history = chatHistory[chatKey] || [];
         socket.emit('load_chat_history', { target: chatTarget, history });
     });
 
@@ -175,26 +181,6 @@ io.on('connection', (socket) => {
         if (!targetUid) return;
         const u = users[targetUid];
         socket.emit('profile_data', { username: u.username, bio: u.bio, pfp: u.pfp, joinDate: u.joinDate });
-    });
-
-    socket.on('call_user', ({ target, signalData, type, isGroup }) => {
-        const sender = users[socket.uid];
-        if (!sender) return;
-        io.to(target).emit('incoming_call', { from: sender.username, signalData, type, groupName: isGroup ? groups[target]?.name : null });
-    });
-
-    socket.on('accept_call', ({ to, signalData }) => {
-        const sender = users[socket.uid];
-        if (!sender) return;
-        io.to(to).emit('call_accepted', { signalData, from: sender.username });
-    });
-
-    socket.on('reject_call', ({ to }) => {
-        io.to(to).emit('call_rejected');
-    });
-
-    socket.on('end_call', ({ to }) => {
-        io.to(to).emit('call_ended');
     });
 });
 
