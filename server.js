@@ -207,4 +207,31 @@ io.on('connection', (socket) => {
         if (msg) {
             msg.pinned = !msg.pinned;
             if (isGroup) {
-                groups
+                groups[recipientOrGroup].members.forEach(m => io.to(m).emit('update_message', msg));
+            } else {
+                io.to(recipientOrGroup).emit('update_message', msg);
+                socket.emit('update_message', msg);
+            }
+        }
+    });
+
+    socket.on('get_chat_history', ({ chatTarget, isGroup }) => {
+        const sender = users[socket.uid];
+        if (!sender) return;
+        const chatKey = isGroup ? chatTarget : [sender.username, chatTarget].sort().join('_');
+        const history = chatHistory[chatKey] || [];
+        socket.emit('load_chat_history', { target: chatTarget, history });
+    });
+
+    socket.on('get_profile', ({ targetUsername }) => {
+        const targetUid = usernames[targetUsername];
+        if (!targetUid) return;
+        const u = users[targetUid];
+        socket.emit('profile_data', { username: u.username, bio: u.bio, pfp: u.pfp, joinDate: u.joinDate });
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Yaply server running on port ${PORT}`);
+});
