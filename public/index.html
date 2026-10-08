@@ -308,6 +308,11 @@
             document.getElementById('desired-pfp').addEventListener('change', (e) => {
                 const file = e.target.files[0];
                 if (file) {
+                    if (file.size > 5 * 1024 * 1024) {
+                        alert("File is too large! Please choose an image under 5MB.");
+                        e.target.value = '';
+                        return;
+                    }
                     const reader = new FileReader();
                     reader.onload = (ev) => { selectedPfpBase64 = ev.target.result; };
                     reader.readAsDataURL(file);
@@ -317,6 +322,11 @@
             document.getElementById('ep-pfp-file').addEventListener('change', (e) => {
                 const file = e.target.files[0];
                 if (file) {
+                    if (file.size > 5 * 1024 * 1024) {
+                        alert("File is too large! Please choose an image under 5MB.");
+                        e.target.value = '';
+                        return;
+                    }
                     const reader = new FileReader();
                     reader.onload = (ev) => {
                         editPfpBase64 = ev.target.result;
