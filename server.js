@@ -203,14 +203,19 @@ io.on('connection', (socket) => {
         if (!sender) return;
         const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
         const history = chatHistory[chatKey] || [];
-        const msg = history.find(m => m.id === msgId);
-        if (msg) {
-            msg.pinned = !msg.pinned;
+        
+        // Toggle pin: unpin all others in this chat if pinning a new one, or toggle off
+        const targetMsg = history.find(m => m.id === msgId);
+        if (targetMsg) {
+            const newState = !targetMsg.pinned;
+            history.forEach(m => m.pinned = false); // only one pin at a time like IG/WhatsApp
+            targetMsg.pinned = newState;
+
             if (isGroup) {
-                groups[recipientOrGroup].members.forEach(m => io.to(m).emit('update_message', msg));
+                groups[recipientOrGroup].members.forEach(m => io.to(m).emit('update_message', targetMsg));
             } else {
-                io.to(recipientOrGroup).emit('update_message', msg);
-                socket.emit('update_message', msg);
+                io.to(recipientOrGroup).emit('update_message', targetMsg);
+                socket.emit('update_message', targetMsg);
             }
         }
     });
