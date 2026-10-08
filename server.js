@@ -144,15 +144,13 @@ io.on('connection', (socket) => {
         });
     });
 
-    socket.on('chat_message', ({ recipientOrGroup, message, isGroup }) => {
+    socket.on('chat_message', ({ recipientOrGroup, message, timestamp, isGroup, isAudio }) => {
         const sender = users[socket.uid];
         if (!sender) return;
 
-        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        // For direct messages, store history under a combined sorted key so both users reference the same chat log
         const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
-        
-        const chatData = { sender: sender.username, message, pfp: sender.pfp, timestamp, target: recipientOrGroup };
+        const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36.substring(2, 7));
+        const chatData = { id: msgId, sender: sender.username, message, pfp: sender.pfp, timestamp, target: recipientOrGroup, isAudio: !!isAudio, pinned: false };
 
         if (!chatHistory[chatKey]) chatHistory[chatKey] = [];
         chatHistory[chatKey].push(chatData);
@@ -164,7 +162,55 @@ io.on('connection', (socket) => {
             }
         } else {
             io.to(recipientOrGroup).emit('receive_message', chatData);
-            socket.emit('receive_message', chatData);
+        }
+    });
+
+    socket.on('edit_message', ({ recipientOrGroup, msgId, newText, isGroup }) => {
+        const sender = users[socket.uid];
+        if (!sender) return;
+        const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
+        const history = chatHistory[chatKey] || [];
+        const msg = history.find(m => m.id === msgId && m.sender === sender.username);
+        if (msg) {
+            msg.message = newText + ' (edited)';
+            if (isGroup) {
+                groups[recipientOrGroup].members.forEach(m => io.to(m).emit('update_message', msg));
+            } else {
+                io.to(recipientOrGroup).emit('update_message', msg);
+                socket.emit('update_message', msg);
+            }
+        }
+    });
+
+    socket.on('delete_message', ({ recipientOrGroup, msgId, isGroup }) => {
+        const sender = users[socket.uid];
+        if (!sender) return;
+        const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
+        if (chatHistory[chatKey]) {
+            chatHistory[chatKey] = chatHistory[chatKey].filter(m => m.id !== msgId);
+        }
+        if (isGroup) {
+            groups[recipientOrGroup].members.forEach(m => io.to(m).emit('remove_message', { msgId }));
+        } else {
+            io.to(recipientOrGroup).emit('remove_message', { msgId });
+            socket.emit('remove_message', { msgId });
+        }
+    });
+
+    socket.on('pin_message', ({ recipientOrGroup, msgId, isGroup }) => {
+        const sender = users[socket.uid];
+        if (!sender) return;
+        const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
+        const history = chatHistory[chatKey] || [];
+        const msg = history.find(m => m.id === msgId);
+        if (msg) {
+            msg.pinned = !msg.pinned;
+            if (isGroup) {
+                groups[recipientOrGroup].members.forEach(m => io.to(m).emit('update_message', msg));
+            } else {
+                io.to(recipientOrGroup).emit('update_message', msg);
+                socket.emit('update_message', msg);
+            }
         }
     });
 
