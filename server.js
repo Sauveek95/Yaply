@@ -11,11 +11,10 @@ const io = new Server(server, {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// In-memory data structures
-const users = {};        // uid -> { username, dob, bio, pfp, friends, requests, blocked, lastUsernameChange, joinDate }
-const usernames = {};    // username -> uid
-const groups = {};       // groupId -> { id, name, members: [] }
-const chatHistory = {};  // targetId -> [ { sender, message, pfp, timestamp } ]
+const users = {};        
+const usernames = {};    
+const groups = {};       
+const chatHistory = {};  
 
 io.on('connection', (socket) => {
 
@@ -58,7 +57,6 @@ io.on('connection', (socket) => {
         socket.emit('auth_result', { exists: true, user: users[uid], groups: [] });
     });
 
-    // Profile Management with 14-Day Username Cooldown
     socket.on('update_profile', ({ newUsername, newBio, newPfp }) => {
         let user = users[socket.uid];
         if (!user) return;
@@ -70,7 +68,7 @@ io.on('connection', (socket) => {
             }
 
             const now = Date.now();
-            const cooldown = 14 * 24 * 60 * 60 * 1000; // 14 days
+            const cooldown = 14 * 24 * 60 * 60 * 1000;
             if (user.lastUsernameChange && (now - user.lastUsernameChange < cooldown)) {
                 const daysLeft = Math.ceil((cooldown - (now - user.lastUsernameChange)) / (1000 * 60 * 60 * 24));
                 socket.emit('profile_update_error', { message: `You can change your username again in ${daysLeft} days.` });
@@ -162,8 +160,8 @@ io.on('connection', (socket) => {
                 grp.members.forEach(m => io.to(m).emit('receive_message', chatData));
             }
         } else {
+            // Send only to recipient so sender handles message locally without server duplicate echo
             io.to(recipientOrGroup).emit('receive_message', chatData);
-            socket.emit('receive_message', chatData);
         }
     });
 
@@ -179,7 +177,6 @@ io.on('connection', (socket) => {
         socket.emit('profile_data', { username: u.username, bio: u.bio, pfp: u.pfp, joinDate: u.joinDate });
     });
 
-    // WebRTC Signaling
     socket.on('call_user', ({ target, signalData, type, isGroup }) => {
         const sender = users[socket.uid];
         if (!sender) return;
