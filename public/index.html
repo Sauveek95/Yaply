@@ -36,7 +36,7 @@
         .icon-btn:hover { transform: scale(1.15); }
         .badge { display: none; position: absolute; top: -6px; right: -8px; background: #f24e1e; color: white; border-radius: 50%; font-size: 0.65rem; padding: 2px 6px; font-weight: bold; }
 
-        .dropdown-menu { display: none; position: absolute; top: 40px; right: 0; background: #202c33; border: 1px solid #2a3942; border-radius: 8px; z-index: 100; min-width: 160px; overflow: hidden; }
+        .dropdown-menu { display: none; position: absolute; top: 40px; right: 0; background: #202c33; border: 1px solid #2a3942; border-radius: 8px; z-index: 100; min-width: 180px; overflow: hidden; }
         .dropdown-item { padding: 12px 16px; font-size: 0.9rem; color: #e9edef; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: background 0.15s; }
         .dropdown-item:hover { background: #2a3942; }
 
@@ -107,6 +107,32 @@
                 <input type="file" id="desired-pfp" accept="image/*" style="padding: 6px 0; border: none;">
             </div>
             <button id="save-username-btn">Complete Profile</button>
+        </div>
+    </div>
+
+    <!-- Manage Profile Modal -->
+    <div id="edit-profile-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="width: 380px;">
+            <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                <h3>Manage Profile</h3>
+                <span onclick="document.getElementById('edit-profile-modal').style.display='none'" style="cursor:pointer; color:#8696a0;">✖</span>
+            </div>
+            <div style="text-align: center;">
+                <img id="ep-current-img" src="" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 2px solid #00a884; margin-bottom: 8px;">
+            </div>
+            <div style="width: 100%;">
+                <label style="color: #8696a0; font-size: 0.8rem;">Change Profile Picture</label>
+                <input type="file" id="ep-pfp-file" accept="image/*" style="padding: 4px 0; border: none;">
+            </div>
+            <div style="width: 100%;">
+                <label style="color: #8696a0; font-size: 0.8rem;">Username (Can change once every 14 days)</label>
+                <input type="text" id="ep-username" placeholder="Username">
+            </div>
+            <div style="width: 100%;">
+                <label style="color: #8696a0; font-size: 0.8rem;">Bio</label>
+                <textarea id="ep-bio" placeholder="Update bio..."></textarea>
+            </div>
+            <button id="save-profile-btn" style="margin-top: 5px;">Save Changes</button>
         </div>
     </div>
 
@@ -193,6 +219,7 @@
                     </div>
                     <div class="icon-btn" id="dots-btn" title="Settings">⋮</div>
                     <div class="dropdown-menu" id="dots-menu">
+                        <div class="dropdown-item" id="menu-edit-profile">⚙️ Manage Profile</div>
                         <div class="dropdown-item" id="menu-create-group">👥 Create Group</div>
                         <div class="dropdown-item" id="menu-blocked">🚫 Blocked Users</div>
                         <div class="dropdown-item" id="menu-logout" style="color: #f24e1e;">🚪 Log Out</div>
@@ -240,11 +267,8 @@
 
         firebase.initializeApp(firebaseConfig);
 
-        // Keep user permanently signed in across reloads
         firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL)
-            .catch((error) => {
-                console.error("Auth persistence error: ", error);
-            });
+            .catch((error) => { console.error("Auth persistence error: ", error); });
 
         document.getElementById('google-login-btn').addEventListener('click', () => {
             const provider = new firebase.auth.GoogleAuthProvider();
@@ -252,9 +276,7 @@
         });
 
         if (typeof io === 'undefined') {
-            alert("CRITICAL ERROR: Cannot find the Node.js Server!\n\nMake sure you are typing http://localhost:3000 in your browser, NOT double-clicking the raw index.html file.");
-            document.getElementById('google-login-btn').innerText = "Server Disconnected ❌";
-            document.getElementById('google-login-btn').style.background = "#f24e1e";
+            alert("CRITICAL ERROR: Cannot find the Node.js Server!");
         } else {
             const socket = io();
 
@@ -263,6 +285,7 @@
             let activeChat = 'Yaply';
             let isGroupChat = true;
             let selectedPfpBase64 = '';
+            let editPfpBase64 = '';
             let chatMeta = {};
 
             let peerConnection = null;
@@ -287,6 +310,18 @@
                 if (file) {
                     const reader = new FileReader();
                     reader.onload = (ev) => { selectedPfpBase64 = ev.target.result; };
+                    reader.readAsDataURL(file);
+                }
+            });
+
+            document.getElementById('ep-pfp-file').addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                        editPfpBase64 = ev.target.result;
+                        document.getElementById('ep-current-img').src = editPfpBase64;
+                    };
                     reader.readAsDataURL(file);
                 }
             });
@@ -316,10 +351,44 @@
                 const dob = document.getElementById('desired-dob').value;
                 if (!username || !dob) return alert('Username and Date of Birth are required!');
                 socket.emit('register_new_user', { uid: firebase.auth().currentUser.uid, username, dob, bio: document.getElementById('desired-bio').value.trim(), pfp: selectedPfpBase64 });
-                document.getElementById('username-modal').style.display = 'none';
+            });
+
+            socket.on('registration_error', ({ message }) => {
+                alert(message);
+                document.getElementById('username-modal').style.display = 'flex';
+            });
+
+            // Manage Profile Setup
+            document.getElementById('menu-edit-profile').addEventListener('click', () => {
+                document.getElementById('ep-current-img').src = myUser.pfp;
+                document.getElementById('ep-username').value = myUser.username;
+                document.getElementById('ep-bio').value = myUser.bio || '';
+                editPfpBase64 = '';
+                document.getElementById('edit-profile-modal').style.display = 'flex';
+            });
+
+            document.getElementById('save-profile-btn').addEventListener('click', () => {
+                const newUsername = document.getElementById('ep-username').value.trim();
+                const newBio = document.getElementById('ep-bio').value.trim();
+                if (!newUsername) return alert("Username cannot be empty!");
+                
+                socket.emit('update_profile', { newUsername, newBio, newPfp: editPfpBase64 });
+                document.getElementById('edit-profile-modal').style.display = 'none';
+            });
+
+            socket.on('profile_updated_success', ({ user }) => {
+                myUser = user;
+                document.getElementById('logged-user-display').innerText = `@${myUser.username}`;
+                document.getElementById('my-mini-pfp').src = myUser.pfp;
+                alert('Profile updated successfully!');
+            });
+
+            socket.on('profile_update_error', ({ message }) => {
+                alert(message);
             });
 
             function enterApp() {
+                document.getElementById('username-modal').style.display = 'none';
                 document.getElementById('app-container').style.display = 'flex';
                 document.getElementById('logged-user-display').innerText = `@${myUser.username}`;
                 document.getElementById('my-mini-pfp').src = myUser.pfp;
