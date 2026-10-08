@@ -110,7 +110,6 @@
         </div>
     </div>
 
-    <!-- Manage Profile Modal -->
     <div id="edit-profile-modal" class="modal" style="display: none;">
         <div class="modal-content" style="width: 380px;">
             <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
@@ -378,7 +377,6 @@
                 document.getElementById('username-modal').style.display = 'flex';
             });
 
-            // Manage Profile Setup
             document.getElementById('menu-edit-profile').addEventListener('click', () => {
                 document.getElementById('ep-current-img').src = myUser.pfp;
                 document.getElementById('ep-username').value = myUser.username;
@@ -417,7 +415,6 @@
                 switchChat('Yaply', true, 'Yaply');
             }
 
-            // Groups UI
             document.getElementById('menu-create-group').addEventListener('click', () => {
                 document.getElementById('create-group-modal').style.display = 'flex';
                 const list = document.getElementById('group-friends-list');
@@ -484,6 +481,7 @@
 
                 renderSidebar();
                 checkChannelLock();
+                document.getElementById('messages-container').innerHTML = '';
                 socket.emit('get_chat_history', { chatTarget: targetId, isGroup });
             }
 
@@ -516,7 +514,8 @@
             }
 
             socket.on('receive_message', (data) => {
-                const chatKey = (data.target === 'Yaply' || data.target.startsWith('group_') || data.target === myUser.username) ? (data.target === myUser.username ? data.sender : data.target) : data.target;
+                const isGroupMsg = data.target.startsWith('group_') || data.target === 'Yaply';
+                let chatKey = isGroupMsg ? data.target : (data.sender === myUser.username ? data.target : data.sender);
 
                 if (chatMeta[chatKey]) {
                     chatMeta[chatKey].lastMsg = `${data.sender === myUser.username ? 'You: ' : ''}${data.message}`;
@@ -530,220 +529,4 @@
                 renderSidebar();
             });
 
-            function appendMessage(data) {
-                const container = document.getElementById('messages-container');
-                const isSelf = data.sender === myUser.username;
-                const row = document.createElement('div');
-                row.className = `message-row ${isSelf ? 'outgoing' : 'incoming'}`;
-                row.innerHTML = `
-                    ${!isSelf ? `<img src="${data.pfp}" class="msg-pfp" onclick="openProfile('${data.sender}')">` : ''}
-                    <div class="message-bubble">
-                        ${!isSelf && isGroupChat ? `<b style="color:#00a884; cursor:pointer;" onclick="openProfile('${data.sender}')">${data.sender}</b><br>` : ''}
-                        ${data.message}<span class="timestamp">${data.timestamp}</span>
-                    </div>
-                `;
-                container.appendChild(row);
-            }
-
-            function showContextMenu(e, chatName) {
-                e.preventDefault();
-                const menu = document.getElementById('context-menu');
-                menu.style.display = 'flex';
-                menu.style.left = e.pageX + 'px';
-                menu.style.top = e.pageY + 'px';
-                menu.dataset.target = chatName;
-
-                document.getElementById('ctx-pin').innerText = chatMeta[chatName]?.pinned ? 'Unpin Chat' : '📌 Pin Chat';
-                document.getElementById('ctx-mute').innerText = chatMeta[chatName]?.muted ? 'Unmute Chat' : '🔇 Mute Chat';
-                document.getElementById('ctx-delete').style.display = (chatName === 'Yaply') ? 'none' : 'block';
-            }
-
-            document.getElementById('ctx-pin').onclick = () => { chatMeta[document.getElementById('context-menu').dataset.target].pinned = !chatMeta[document.getElementById('context-menu').dataset.target].pinned; renderSidebar(); };
-            document.getElementById('ctx-mute').onclick = () => { chatMeta[document.getElementById('context-menu').dataset.target].muted = !chatMeta[document.getElementById('context-menu').dataset.target].muted; renderSidebar(); };
-            document.getElementById('ctx-delete').onclick = () => {
-                const target = document.getElementById('context-menu').dataset.target;
-                if (target === 'Yaply') return;
-                if (confirm(`Delete chat with ${target}?`)) {
-                    if(target.startsWith('group_')) myGroups = myGroups.filter(g => g.id !== target);
-                    else myUser.friends = myUser.friends.filter(f => f !== target);
-                    renderSidebar();
-                    switchChat('Yaply', true, 'Yaply');
-                }
-            };
-
-            // Search, Blocks, Friends
-            document.getElementById('search-btn').addEventListener('click', () => { document.getElementById('search-modal').style.display = 'flex'; document.getElementById('search-input').value = ''; document.getElementById('search-results').innerHTML = ''; });
-            document.getElementById('search-input').addEventListener('input', (e) => socket.emit('search_user', { query: e.target.value }));
-
-            socket.on('search_results', (results) => {
-                const list = document.getElementById('search-results');
-                list.innerHTML = results.length === 0 ? `<div style="text-align:center; color:#8696a0;">No users found</div>` : '';
-                
-                results.forEach(u => {
-                    const row = document.createElement('div');
-                    row.style.cssText = "background:#111b21; padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;";
-                    row.innerHTML = `
-                        <div style="display:flex; align-items:center; gap:10px;">
-                            <img src="${u.pfp}" style="width:36px; height:36px; border-radius:50%; object-fit:cover;">
-                            <div><div style="font-weight:bold; color:#e9edef;">@${u.username}</div><div style="font-size:0.75rem; color:#8696a0;">${u.bio}</div></div>
-                        </div>
-                        <div style="display:flex; gap:6px;">
-                            <button class="add-btn" style="background:#00a884; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;">➕</button>
-                            <button class="chat-btn" style="background:#202c33; color:#fff; border:1px solid #2a3942; padding:6px 10px; border-radius:6px; cursor:pointer;">💬</button>
-                            <button class="block-btn" style="background:#f24e1e; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;">🚫</button>
-                        </div>`;
-
-                    row.querySelector('.add-btn').onclick = () => {
-                        socket.emit('send_friend_request', { targetUsername: u.username });
-                        alert('Friend request sent!');
-                    };
-
-                    row.querySelector('.chat-btn').onclick = () => {
-                        document.getElementById('search-modal').style.display = 'none';
-                        if (!myUser.friends.includes(u.username)) myUser.friends.push(u.username);
-                        switchChat(u.username, false);
-                    };
-
-                    row.querySelector('.block-btn').onclick = () => {
-                        if (confirm(`Block @${u.username}?`)) {
-                            socket.emit('block_user', { targetUsername: u.username });
-                            document.getElementById('search-modal').style.display = 'none';
-                        }
-                    };
-
-                    list.appendChild(row);
-                });
-            });
-
-            document.getElementById('dots-btn').addEventListener('click', (e) => { e.stopPropagation(); const m = document.getElementById('dots-menu'); m.style.display = m.style.display === 'block' ? 'none' : 'block'; });
-            document.getElementById('menu-blocked').addEventListener('click', () => { document.getElementById('blocked-modal').style.display = 'flex'; renderBlockedList(); });
-            document.getElementById('menu-logout').addEventListener('click', () => firebase.auth().signOut().then(() => window.location.reload()));
-
-            function renderBlockedList() {
-                const list = document.getElementById('blocked-list');
-                list.innerHTML = (!myUser.blocked || myUser.blocked.length === 0) ? `<div style="text-align:center; color:#8696a0;">No blocked accounts</div>` : '';
-                myUser.blocked.forEach(b => {
-                    list.innerHTML += `<div style="background:#111b21; padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;"><span style="color:#e9edef; font-weight:bold;">@${b}</span><button onclick="socket.emit('unblock_user', { targetUsername: '${b}' })" style="background:#202c33; color:#00a884; border:1px solid #00a884; padding:5px 12px; border-radius:6px; cursor:pointer;">Unblock</button></div>`;
-                });
-            }
-            socket.on('update_blocked', ({ blocked }) => { myUser.blocked = blocked; renderBlockedList(); });
-
-            document.getElementById('notif-bell').addEventListener('click', () => document.getElementById('notifications-modal').style.display = 'flex');
-            socket.on('update_requests', ({ requests }) => { myUser.requests = requests; renderNotifications(); });
-            socket.on('update_friends', ({ friends }) => { myUser.friends = friends; renderSidebar(); });
-
-            function renderNotifications() {
-                document.getElementById('notif-badge').style.display = myUser.requests.length > 0 ? 'block' : 'none';
-                document.getElementById('notif-badge').innerText = myUser.requests.length;
-                const list = document.getElementById('notif-list');
-                list.innerHTML = myUser.requests.length === 0 ? '<div style="color:#8696a0; text-align:center;">No new requests</div>' : '';
-                
-                myUser.requests.forEach(req => {
-                    const row = document.createElement('div');
-                    row.style.cssText = "background:#111b21; padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;";
-                    row.innerHTML = `
-                        <span style="color:#e9edef; font-weight:bold;">@${req}</span>
-                        <div style="display:flex; gap:6px;">
-                            <button class="accept-btn" style="background:#00a884; border:none; padding:6px 12px; border-radius:6px; font-weight:bold; cursor:pointer;">Accept</button>
-                            <button class="ignore-btn" style="background:#202c33; color:#8696a0; border:1px solid #2a3942; padding:6px 10px; border-radius:6px; cursor:pointer;">✖</button>
-                        </div>`;
-
-                    row.querySelector('.accept-btn').onclick = () => {
-                        socket.emit('handle_request', { requester: req, action: 'accept' });
-                        document.getElementById('notifications-modal').style.display = 'none';
-                    };
-
-                    row.querySelector('.ignore-btn').onclick = () => {
-                        socket.emit('handle_request', { requester: req, action: 'ignore' });
-                    };
-
-                    list.appendChild(row);
-                });
-            }
-
-            document.getElementById('my-profile-trigger').addEventListener('click', () => openProfile(myUser.username));
-            function openProfile(user) { socket.emit('get_profile', { targetUsername: user }); }
-            socket.on('profile_data', (profile) => {
-                document.getElementById('vp-img').src = profile.pfp;
-                document.getElementById('vp-username').innerText = '@' + profile.username;
-                document.getElementById('vp-bio').innerText = profile.bio;
-                document.getElementById('vp-join').innerText = 'Member since ' + profile.joinDate;
-                document.getElementById('view-profile-modal').style.display = 'flex';
-            });
-
-            // Video & Voice Calls
-            document.getElementById('video-trigger-btn').addEventListener('click', () => initiateCall('video'));
-            document.getElementById('voice-trigger-btn').addEventListener('click', () => initiateCall('voice'));
-
-            async function initiateCall(type) {
-                if (activeChat === 'Yaply') return alert("Calls are disabled in the global Yaply channel.");
-                await startLocalStream(type);
-                document.getElementById('call-screen').style.display = 'flex';
-                
-                const title = isGroupChat ? myGroups.find(g => g.id === activeChat)?.name || 'Group' : activeChat;
-                document.getElementById('call-status').innerText = `${type === 'video' ? 'Video' : 'Voice'} Calling ${isGroupChat ? '' : '@'}${title}...`;
-
-                peerConnection = new RTCPeerConnection(rtcConfig);
-                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-                peerConnection.ontrack = (e) => document.getElementById('remote-video').srcObject = e.streams[0];
-
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-                
-                socket.emit('call_user', { target: activeChat, signalData: offer, type, isGroup: isGroupChat });
-            }
-
-            async function startLocalStream(type) {
-                try {
-                    const videoEnabled = type === 'video';
-                    localStream = await navigator.mediaDevices.getUserMedia({ video: videoEnabled, audio: true });
-                    document.getElementById('local-video-box').style.display = videoEnabled ? 'block' : 'none';
-                    document.getElementById('remote-video-box').style.display = videoEnabled ? 'block' : 'none';
-                    if (videoEnabled) document.getElementById('local-video').srcObject = localStream;
-                } catch (err) { alert("Camera/Microphone access denied."); }
-            }
-
-            socket.on('incoming_call', async ({ from, signalData, type, groupName }) => {
-                const callText = groupName ? `Group ${type} call from @${from} in ${groupName}` : `Incoming ${type} call from @${from}`;
-                if (confirm(`${callText}! Accept?`)) {
-                    await startLocalStream(type);
-                    document.getElementById('call-screen').style.display = 'flex';
-                    document.getElementById('call-status').innerText = `Connected`;
-                    document.getElementById('remote-label').innerText = `@${from}`;
-
-                    peerConnection = new RTCPeerConnection(rtcConfig);
-                    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-                    peerConnection.ontrack = (e) => document.getElementById('remote-video').srcObject = e.streams[0];
-
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(signalData));
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    socket.emit('accept_call', { to: from, signalData: answer });
-                } else socket.emit('reject_call', { to: from });
-            });
-
-            socket.on('call_accepted', async ({ signalData, from }) => {
-                if (peerConnection.signalingState !== 'have-local-offer') return; 
-                document.getElementById('call-status').innerText = `Connected`;
-                document.getElementById('remote-label').innerText = `@${from || 'User'}`;
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(signalData));
-            });
-
-            socket.on('call_rejected', () => { alert("Call declined."); endCall(); });
-            socket.on('call_failed', ({ reason }) => { alert(reason); endCall(); });
-            socket.on('call_ended', () => { endCall(); });
-
-            document.getElementById('end-call-btn').addEventListener('click', () => { 
-                socket.emit('end_call', { to: activeChat, isGroup: isGroupChat }); 
-                endCall(); 
-            });
-
-            function endCall() {
-                document.getElementById('call-screen').style.display = 'none';
-                if (localStream) { localStream.getTracks().forEach(track => track.stop()); localStream = null; }
-                if (peerConnection) { peerConnection.close(); peerConnection = null; }
-            }
-        }
-    </script>
-</body>
-</html>
+            function appendMessage(data
