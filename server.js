@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -12,50 +11,10 @@ const io = new Server(server, {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Persistent Storage files
-const usersFile = path.join(__dirname, 'users.json');
-const chatsFile = path.join(__dirname, 'chats.json');
-
-let users = {};
-let usernames = {};
-let groups = {};
-let chatHistory = {};
-
-// Load existing data from disk on startup
-if (fs.existsSync(usersFile)) {
-    try {
-        const saved = JSON.parse(fs.readFileSync(usersFile, 'utf8'));
-        users = saved.users || {};
-        usernames = saved.usernames || {};
-        groups = saved.groups || {};
-    } catch (e) {
-        console.error("Error loading users:", e);
-    }
-}
-
-if (fs.existsSync(chatsFile)) {
-    try {
-        chatHistory = JSON.parse(fs.readFileSync(chatsFile, 'utf8'));
-    } catch (e) {
-        chatHistory = {};
-    }
-}
-
-function saveData() {
-    try {
-        fs.writeFileSync(usersFile, JSON.stringify({ users, usernames, groups }, null, 2));
-    } catch (e) {
-        console.error("Error saving users:", e);
-    }
-}
-
-function saveChats() {
-    try {
-        fs.writeFileSync(chatsFile, JSON.stringify(chatHistory, null, 2));
-    } catch (e) {
-        console.error("Error saving chats:", e);
-    }
-}
+const users = {};        
+const usernames = {};    
+const groups = {};       
+const chatHistory = {};  
 
 io.on('connection', (socket) => {
 
@@ -94,7 +53,6 @@ io.on('connection', (socket) => {
         usernames[username] = uid;
         socket.uid = uid;
         socket.join(username);
-        saveData();
 
         socket.emit('auth_result', { exists: true, user: users[uid], groups: [] });
     });
@@ -127,7 +85,6 @@ io.on('connection', (socket) => {
 
         if (newBio !== undefined) user.bio = newBio;
         if (newPfp) user.pfp = newPfp;
-        saveData();
 
         socket.emit('profile_updated_success', { user });
     });
@@ -153,7 +110,6 @@ io.on('connection', (socket) => {
 
         if (!targetUser.requests.includes(sender.username) && !targetUser.friends.includes(sender.username)) {
             targetUser.requests.push(sender.username);
-            saveData();
             io.to(targetUsername).emit('update_requests', { requests: targetUser.requests });
         }
     });
@@ -172,7 +128,6 @@ io.on('connection', (socket) => {
 
             io.to(requester).emit('update_friends', { friends: requesterUser.friends });
         }
-        saveData();
 
         socket.emit('update_requests', { requests: user.requests });
         socket.emit('update_friends', { friends: user.friends });
@@ -186,7 +141,6 @@ io.on('connection', (socket) => {
             user.blocked.push(targetUsername);
             user.friends = user.friends.filter(f => f !== targetUsername);
         }
-        saveData();
         socket.emit('update_blocked', { blocked: user.blocked });
         socket.emit('update_friends', { friends: user.friends });
     });
@@ -197,7 +151,6 @@ io.on('connection', (socket) => {
         if (user.blocked) {
             user.blocked = user.blocked.filter(b => b !== targetUsername);
         }
-        saveData();
         socket.emit('update_blocked', { blocked: user.blocked });
     });
 
@@ -208,7 +161,6 @@ io.on('connection', (socket) => {
         const groupId = 'group_' + Date.now();
         const allMembers = [creator.username, ...members];
         groups[groupId] = { id: groupId, name: groupName, members: allMembers };
-        saveData();
 
         allMembers.forEach(mName => {
             io.to(mName).emit('new_group_added', groups[groupId]);
@@ -229,7 +181,6 @@ io.on('connection', (socket) => {
 
         if (!chatHistory[chatKey]) chatHistory[chatKey] = [];
         chatHistory[chatKey].push(chatData);
-        saveChats();
 
         if (isGroup) {
             io.emit('receive_message', chatData);
@@ -247,7 +198,6 @@ io.on('connection', (socket) => {
         const msg = history.find(m => m.id === msgId && m.sender === sender.username);
         if (msg) {
             msg.message = newText + ' (edited)';
-            saveChats();
             if (isGroup) {
                 io.emit('update_message', msg);
             } else {
@@ -263,7 +213,6 @@ io.on('connection', (socket) => {
         const chatKey = isGroup ? recipientOrGroup : [sender.username, recipientOrGroup].sort().join('_');
         if (chatHistory[chatKey]) {
             chatHistory[chatKey] = chatHistory[chatKey].filter(m => m.id !== msgId);
-            saveChats();
         }
         if (isGroup) {
             io.emit('remove_message', { msgId });
@@ -283,7 +232,6 @@ io.on('connection', (socket) => {
             const newState = !targetMsg.pinned;
             history.forEach(m => m.pinned = false);
             targetMsg.pinned = newState;
-            saveChats();
 
             if (isGroup) {
                 io.emit('update_message', targetMsg);
