@@ -5,7 +5,6 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-// Increased buffer size to 10MB to prevent 413 errors on large profile pictures
 const io = new Server(server, {
     maxHttpBufferSize: 10 * 1024 * 1024
 });
@@ -23,8 +22,9 @@ io.on('connection', (socket) => {
     socket.on('check_auth', ({ uid }) => {
         socket.uid = uid;
         if (users[uid]) {
-            socket.join(users[uid].username);
-            const userGroups = Object.values(groups).filter(g => g.members.includes(users[uid].username));
+            const username = users[uid].username;
+            socket.join(username);
+            const userGroups = Object.values(groups).filter(g => g.members.includes(username));
             socket.emit('auth_result', { exists: true, user: users[uid], groups: userGroups });
         } else {
             socket.emit('auth_result', { exists: false });
@@ -77,9 +77,11 @@ io.on('connection', (socket) => {
                 return;
             }
 
+            socket.leave(user.username);
             delete usernames[user.username];
             user.username = newUsername;
             usernames[newUsername] = socket.uid;
+            socket.join(newUsername);
             user.lastUsernameChange = now;
         }
 
