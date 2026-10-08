@@ -540,8 +540,7 @@
 
                 if (!cachedHistories[chatKey]) cachedHistories[chatKey] = [];
                 
-                // Prevent adding duplicate messages from echoes
-                const isDuplicate = cachedHistories[chatKey].some(m => m.message === data.message && m.sender === data.sender);
+                const isDuplicate = cachedHistories[chatKey].some(m => m.message === data.message && m.sender === data.sender && m.timestamp === data.timestamp);
                 if (!isDuplicate) {
                     cachedHistories[chatKey].push(data);
                 }
