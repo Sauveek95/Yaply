@@ -51,7 +51,7 @@
         #chat-header { padding: 12px 20px; background: #202c33; border-bottom: 1px solid #222d34; display: flex; justify-content: space-between; align-items: center; }
         #messages-container { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; background-image: radial-gradient(#1f2c34 1px, transparent 1px); background-size: 24px 24px; }
 
-        .message-row { display: flex; gap: 10px; align-items: flex-end; max-width: 70%; }
+        .message-row { display: flex; gap: 10px; align-items: flex-end; max-width: 70%; position: relative; }
         .message-row.incoming { align-self: flex-start; }
         .message-row.outgoing { align-self: flex-end; flex-direction: row-reverse; }
         .message-bubble { padding: 10px 14px; border-radius: 8px; word-break: break-word; font-size: 0.95rem; }
@@ -63,15 +63,15 @@
         #input-area { padding: 12px 18px; background: #202c33; display: flex; align-items: center; gap: 10px; }
         #message-input { flex: 1; padding: 12px 16px; border-radius: 8px; border: none; background: #2a3942; color: #fff; outline: none; }
 
+        #msg-context-menu { display: none; position: absolute; background: #202c33; border: 1px solid #2a3942; border-radius: 8px; z-index: 2500; flex-direction: column; overflow: hidden; box-shadow: 0 6px 16px rgba(0,0,0,0.5); width: 150px; }
+        .msg-ctx-item { padding: 10px 14px; cursor: pointer; color: #e9edef; font-size: 0.85rem; transition: background 0.15s; }
+        .msg-ctx-item:hover { background: #2a3942; }
+
         #call-screen { display: none; position: fixed; inset: 0; background: #111b21; z-index: 2000; flex-direction: column; align-items: center; justify-content: center; gap: 20px; }
         .video-grid { display: flex; gap: 20px; width: 85%; height: 65%; justify-content: center; align-items: center; }
         .video-box { width: 45%; height: 100%; background: #000; border-radius: 12px; overflow: hidden; position: relative; border: 2px solid #2a3942; display: none; }
         .video-box video { width: 100%; height: 100%; object-fit: cover; }
         .video-label { position: absolute; bottom: 12px; left: 12px; background: rgba(0,0,0,0.6); padding: 4px 10px; border-radius: 4px; font-size: 0.85rem; }
-        
-        #context-menu { display: none; position: absolute; background: #202c33; border: 1px solid #2a3942; border-radius: 8px; z-index: 2000; flex-direction: column; overflow: hidden; box-shadow: 0 6px 16px rgba(0,0,0,0.5); width: 160px; }
-        .ctx-item { padding: 10px 16px; cursor: pointer; color: #e9edef; font-size: 0.9rem; transition: background 0.15s; }
-        .ctx-item:hover { background: #2a3942; }
     </style>
 
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
@@ -79,10 +79,10 @@
 </head>
 <body>
 
-    <div id="context-menu">
-        <div class="ctx-item" id="ctx-pin">📌 Pin Chat</div>
-        <div class="ctx-item" id="ctx-mute">🔇 Mute Chat</div>
-        <div class="ctx-item" id="ctx-delete" style="color: #f24e1e; border-top: 1px solid #2a3942;">🗑️ Delete Chat</div>
+    <div id="msg-context-menu">
+        <div class="msg-ctx-item" id="msg-ctx-pin">📌 Pin Message</div>
+        <div class="msg-ctx-item" id="msg-ctx-edit">✏️ Edit Message</div>
+        <div class="msg-ctx-item" id="msg-ctx-delete" style="color: #f24e1e;">🗑️ Delete Message</div>
     </div>
 
     <div id="login-modal" class="modal">
@@ -242,6 +242,7 @@
             </div>
             <div id="messages-container"></div>
             <div id="input-area">
+                <button id="mic-btn" style="background: transparent; border: none; font-size: 1.4rem; cursor: pointer;" title="Hold to record voice message">🎤</button>
                 <input type="text" id="message-input" placeholder="Type a message...">
                 <button id="send-btn" style="background: transparent; border: none; font-size: 1.4rem; cursor: pointer; color: #00a884;">➤</button>
             </div>
@@ -285,31 +286,54 @@
             let chatMeta = {};
             const cachedHistories = {};
 
-            let peerConnection = null;
-            let localStream = null;
-            const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+            let mediaRecorder = null;
+            let audioChunks = [];
+            let isRecording = false;
 
-            socket.on('connect', () => {
-                const fbUser = firebase.auth().currentUser;
-                if (fbUser) socket.emit('check_auth', { uid: fbUser.uid });
-            });
+            // Voice Message Recording Logic
+            const micBtn = document.getElementById('mic-btn');
+            micBtn.onmousedown = async () => {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        const reader = new FileReader();
+                        reader.readAsDataURL(audioBlob);
+                        reader.onloadend = () => {
+                            const base64Audio = reader.result;
+                            const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                            socket.emit('chat_message', { recipientOrGroup: activeChat, message: base64Audio, timestamp, isGroup: isGroupChat, isAudio: true });
+                        };
+                    };
+                    mediaRecorder.start();
+                    micBtn.style.color = '#f24e1e';
+                    isRecording = true;
+                } catch (err) {
+                    alert("Microphone permission denied.");
+                }
+            };
 
+            micBtn.onmouseup = () => {
+                if (isRecording && mediaRecorder) {
+                    mediaRecorder.stop();
+                    micBtn.style.color = '';
+                    isRecording = false;
+                }
+            };
+
+            let selectedMsgIdForContext = null;
             window.addEventListener('click', (e) => {
                 if (e.target.classList.contains('modal')) e.target.style.display = 'none';
-                const dotsMenu = document.getElementById('dots-menu');
-                if (dotsMenu && e.target.id !== 'dots-btn') dotsMenu.style.display = 'none';
-                const contextMenu = document.getElementById('context-menu');
-                if (contextMenu && e.target !== contextMenu) contextMenu.style.display = 'none';
+                document.getElementById('dots-menu').style.display = 'none';
+                document.getElementById('msg-context-menu').style.display = 'none';
             });
 
             document.getElementById('desired-pfp').addEventListener('change', (e) => {
                 const file = e.target.files[0];
                 if (file) {
-                    if (file.size > 8 * 1024 * 1024) {
-                        alert("File is too large! Please choose an image under 8MB.");
-                        e.target.value = '';
-                        return;
-                    }
                     const reader = new FileReader();
                     reader.onload = (ev) => { selectedPfpBase64 = ev.target.result; };
                     reader.readAsDataURL(file);
@@ -319,11 +343,6 @@
             document.getElementById('ep-pfp-file').addEventListener('change', (e) => {
                 const file = e.target.files[0];
                 if (file) {
-                    if (file.size > 8 * 1024 * 1024) {
-                        alert("File is too large! Please choose an image under 8MB.");
-                        e.target.value = '';
-                        return;
-                    }
                     const reader = new FileReader();
                     reader.onload = (ev) => {
                         editPfpBase64 = ev.target.result;
@@ -357,17 +376,9 @@
                 const username = document.getElementById('desired-username').value.trim();
                 const dob = document.getElementById('desired-dob').value;
                 if (!username || !dob) return alert('Username and Date of Birth are required!');
-                
                 const currentUser = firebase.auth().currentUser;
-                if (!currentUser) return alert('Authentication error. Please refresh and log in again.');
-
-                socket.emit('register_new_user', { 
-                    uid: currentUser.uid, 
-                    username, 
-                    dob, 
-                    bio: document.getElementById('desired-bio').value.trim(), 
-                    pfp: selectedPfpBase64 
-                });
+                if (!currentUser) return alert('Authentication error. Please refresh.');
+                socket.emit('register_new_user', { uid: currentUser.uid, username, dob, bio: document.getElementById('desired-bio').value.trim(), pfp: selectedPfpBase64 });
             });
 
             socket.on('registration_error', ({ message }) => {
@@ -387,7 +398,6 @@
                 const newUsername = document.getElementById('ep-username').value.trim();
                 const newBio = document.getElementById('ep-bio').value.trim();
                 if (!newUsername) return alert("Username cannot be empty!");
-                
                 socket.emit('update_profile', { newUsername, newBio, newPfp: editPfpBase64 });
                 document.getElementById('edit-profile-modal').style.display = 'none';
             });
@@ -399,9 +409,7 @@
                 alert('Profile updated successfully!');
             });
 
-            socket.on('profile_update_error', ({ message }) => {
-                alert(message);
-            });
+            socket.on('profile_update_error', ({ message }) => alert(message));
 
             function enterApp() {
                 document.getElementById('username-modal').style.display = 'none';
@@ -417,7 +425,7 @@
                 document.getElementById('create-group-modal').style.display = 'flex';
                 const list = document.getElementById('group-friends-list');
                 list.innerHTML = '';
-                if(myUser.friends.length === 0) list.innerHTML = 'Add friends first to create a group!';
+                if(myUser.friends.length === 0) list.innerHTML = 'Add friends first!';
                 myUser.friends.forEach(f => {
                     list.innerHTML += `<label style="color:#e9edef; display:flex; gap:10px;"><input type="checkbox" value="${f}" class="grp-friend-cb"> ${f}</label>`;
                 });
@@ -425,11 +433,10 @@
 
             document.getElementById('confirm-create-group-btn').addEventListener('click', () => {
                 const gName = document.getElementById('group-name-input').value.trim();
-                if(!gName) return alert("Please name your group!");
+                if(!gName) return alert("Name your group!");
                 const checkboxes = document.querySelectorAll('.grp-friend-cb:checked');
                 const members = Array.from(checkboxes).map(cb => cb.value);
                 if(members.length === 0) return alert("Select at least one friend!");
-                
                 socket.emit('create_group', { groupName: gName, members });
                 document.getElementById('create-group-modal').style.display = 'none';
             });
@@ -466,7 +473,6 @@
                     item.innerHTML = `${pfpHtml}<div style="flex: 1; overflow: hidden;"><h4 style="color:#e9edef; font-size:0.95rem;">${meta.pinned ? '📌 ' : ''}${chat.name}</h4><p style="font-size:0.8rem; color:#8696a0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${meta.lastMsg}</p></div>${unreadBadge}`;
 
                     item.onclick = () => switchChat(chat.id, chat.isGroup, chat.name);
-                    item.oncontextmenu = (e) => showContextMenu(e, chat.id);
                     container.appendChild(item);
                 });
             }
@@ -518,20 +524,7 @@
                 if (!message || !activeChat) return;
 
                 const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                const optimisticData = { sender: myUser.username, message, pfp: myUser.pfp, timestamp, target: activeChat };
-                
-                if (!cachedHistories[activeChat]) cachedHistories[activeChat] = [];
-                cachedHistories[activeChat].push(optimisticData);
-
-                appendMessage(optimisticData);
-                document.getElementById('messages-container').scrollTop = document.getElementById('messages-container').scrollHeight;
-
-                if (chatMeta[activeChat]) {
-                    chatMeta[activeChat].lastMsg = `You: ${message}`;
-                }
-                renderSidebar();
-
-                socket.emit('chat_message', { recipientOrGroup: activeChat, message, isGroup: isGroupChat });
+                socket.emit('chat_message', { recipientOrGroup: activeChat, message, timestamp, isGroup: isGroupChat, isAudio: false });
                 input.value = '';
             }
 
@@ -539,64 +532,98 @@
                 const chatKey = (data.target === 'Yaply' || data.target.startsWith('group_') || data.target === myUser.username) ? (data.target === myUser.username ? data.sender : data.target) : data.target;
 
                 if (!cachedHistories[chatKey]) cachedHistories[chatKey] = [];
-                
-                const isDuplicate = cachedHistories[chatKey].some(m => m.message === data.message && m.sender === data.sender && m.timestamp === data.timestamp);
-                if (!isDuplicate) {
-                    cachedHistories[chatKey].push(data);
-                }
+                cachedHistories[chatKey].push(data);
 
                 if (chatMeta[chatKey]) {
-                    chatMeta[chatKey].lastMsg = `${data.sender === myUser.username ? 'You: ' : ''}${data.message}`;
+                    chatMeta[chatKey].lastMsg = `${data.sender === myUser.username ? 'You: ' : ''}${data.isAudio ? 'Voice message' : data.message}`;
                     if (activeChat !== chatKey && !chatMeta[chatKey].muted) chatMeta[chatKey].unread++;
                 }
 
                 if (activeChat === chatKey) {
-                    const container = document.getElementById('messages-container');
-                    container.innerHTML = '';
-                    cachedHistories[chatKey].forEach(appendMessage);
-                    container.scrollTop = container.scrollHeight;
+                    appendMessage(data);
+                    document.getElementById('messages-container').scrollTop = document.getElementById('messages-container').scrollHeight;
                 }
                 renderSidebar();
             });
+
+            socket.on('update_message', (updatedMsg) => {
+                for (let key in cachedHistories) {
+                    let list = cachedHistories[key];
+                    let idx = list.findIndex(m => m.id === updatedMsg.id);
+                    if (idx !== -1) {
+                        list[idx] = updatedMsg;
+                        if (activeChat === key) {
+                            refreshChatWindow(key);
+                        }
+                    }
+                }
+            });
+
+            socket.on('remove_message', ({ msgId }) => {
+                for (let key in cachedHistories) {
+                    cachedHistories[key] = cachedHistories[key].filter(m => m.id !== msgId);
+                    if (activeChat === key) {
+                        refreshChatWindow(key);
+                    }
+                }
+            });
+
+            function refreshChatWindow(chatKey) {
+                const container = document.getElementById('messages-container');
+                container.innerHTML = '';
+                (cachedHistories[chatKey] || []).forEach(appendMessage);
+            }
 
             function appendMessage(data) {
                 const container = document.getElementById('messages-container');
                 const isSelf = data.sender === myUser.username;
                 const row = document.createElement('div');
                 row.className = `message-row ${isSelf ? 'outgoing' : 'incoming'}`;
+                row.dataset.msgid = data.id;
+
+                let contentHtml = data.message;
+                if (data.isAudio) {
+                    contentHtml = `<audio controls src="${data.message}" style="height: 35px; width: 200px;"></audio>`;
+                }
+                if (data.pinned) {
+                    contentHtml = `📌 <small style="color:#00a884;">Pinned</small><br>` + contentHtml;
+                }
+
                 row.innerHTML = `
-                    ${!isSelf ? `<img src="${data.pfp}" class="msg-pfp" onclick="openProfile('${data.sender}')">` : ''}
+                    ${!isSelf ? `<img src="${data.pfp}" class="msg-pfp">` : ''}
                     <div class="message-bubble">
-                        ${!isSelf && isGroupChat ? `<b style="color:#00a884; cursor:pointer;" onclick="openProfile('${data.sender}')">${data.sender}</b><br>` : ''}
-                        ${data.message}<span class="timestamp">${data.timestamp}</span>
+                        ${!isSelf && isGroupChat ? `<b style="color:#00a884;">${data.sender}</b><br>` : ''}
+                        ${contentHtml}<span class="timestamp">${data.timestamp}</span>
                     </div>
                 `;
+
+                row.oncontextmenu = (e) => {
+                    e.preventDefault();
+                    selectedMsgIdForContext = data.id;
+                    const menu = document.getElementById('msg-context-menu');
+                    menu.style.display = 'flex';
+                    menu.style.left = e.pageX + 'px';
+                    menu.style.top = e.pageY + 'px';
+                    document.getElementById('msg-ctx-edit').style.display = isSelf && !data.isAudio ? 'block' : 'none';
+                };
+
                 container.appendChild(row);
             }
 
-            function showContextMenu(e, chatName) {
-                e.preventDefault();
-                const menu = document.getElementById('context-menu');
-                menu.style.display = 'flex';
-                menu.style.left = e.pageX + 'px';
-                menu.style.top = e.pageY + 'px';
-                menu.dataset.target = chatName;
+            document.getElementById('msg-ctx-pin').onclick = () => {
+                socket.emit('pin_message', { recipientOrGroup: activeChat, msgId: selectedMsgIdForContext, isGroup: isGroupChat });
+            };
 
-                document.getElementById('ctx-pin').innerText = chatMeta[chatName]?.pinned ? 'Unpin Chat' : '📌 Pin Chat';
-                document.getElementById('ctx-mute').innerText = chatMeta[chatName]?.muted ? 'Unmute Chat' : '🔇 Mute Chat';
-                document.getElementById('ctx-delete').style.display = (chatName === 'Yaply') ? 'none' : 'block';
-            }
+            document.getElementById('msg-ctx-edit').onclick = () => {
+                const newText = prompt("Edit your message:");
+                if (newText) {
+                    socket.emit('edit_message', { recipientOrGroup: activeChat, msgId: selectedMsgIdForContext, newText, isGroup: isGroupChat });
+                }
+            };
 
-            document.getElementById('ctx-pin').onclick = () => { chatMeta[document.getElementById('context-menu').dataset.target].pinned = !chatMeta[document.getElementById('context-menu').dataset.target].pinned; renderSidebar(); };
-            document.getElementById('ctx-mute').onclick = () => { chatMeta[document.getElementById('context-menu').dataset.target].muted = !chatMeta[document.getElementById('context-menu').dataset.target].muted; renderSidebar(); };
-            document.getElementById('ctx-delete').onclick = () => {
-                const target = document.getElementById('context-menu').dataset.target;
-                if (target === 'Yaply') return;
-                if (confirm(`Delete chat with ${target}?`)) {
-                    if(target.startsWith('group_')) myGroups = myGroups.filter(g => g.id !== target);
-                    else myUser.friends = myUser.friends.filter(f => f !== target);
-                    renderSidebar();
-                    switchChat('Yaply', true, 'Yaply');
+            document.getElementById('msg-ctx-delete').onclick = () => {
+                if (confirm("Delete this message?")) {
+                    socket.emit('delete_message', { recipientOrGroup: activeChat, msgId: selectedMsgIdForContext, isGroup: isGroupChat });
                 }
             };
 
@@ -606,7 +633,6 @@
             socket.on('search_results', (results) => {
                 const list = document.getElementById('search-results');
                 list.innerHTML = results.length === 0 ? `<div style="text-align:center; color:#8696a0;">No users found</div>` : '';
-                
                 results.forEach(u => {
                     const row = document.createElement('div');
                     row.style.cssText = "background:#111b21; padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;";
@@ -618,79 +644,16 @@
                         <div style="display:flex; gap:6px;">
                             <button class="add-btn" style="background:#00a884; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;">➕</button>
                             <button class="chat-btn" style="background:#202c33; color:#fff; border:1px solid #2a3942; padding:6px 10px; border-radius:6px; cursor:pointer;">💬</button>
-                            <button class="block-btn" style="background:#f24e1e; color:#fff; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;">🚫</button>
                         </div>`;
-
-                    row.querySelector('.add-btn').onclick = () => {
-                        socket.emit('send_friend_request', { targetUsername: u.username });
-                        alert('Friend request sent!');
-                    };
-
-                    row.querySelector('.chat-btn').onclick = () => {
-                        document.getElementById('search-modal').style.display = 'none';
-                        if (!myUser.friends.includes(u.username)) myUser.friends.push(u.username);
-                        switchChat(u.username, false);
-                    };
-
-                    row.querySelector('.block-btn').onclick = () => {
-                        if (confirm(`Block @${u.username}?`)) {
-                            socket.emit('block_user', { targetUsername: u.username });
-                            document.getElementById('search-modal').style.display = 'none';
-                        }
-                    };
-
+                    row.querySelector('.add-btn').onclick = () => { socket.emit('send_friend_request', { targetUsername: u.username }); alert('Request sent!'); };
+                    row.querySelector('.chat-btn').onclick = () => { document.getElementById('search-modal').style.display = 'none'; if (!myUser.friends.includes(u.username)) myUser.friends.push(u.username); switchChat(u.username, false); };
                     list.appendChild(row);
                 });
             });
 
             document.getElementById('dots-btn').addEventListener('click', (e) => { e.stopPropagation(); const m = document.getElementById('dots-menu'); m.style.display = m.style.display === 'block' ? 'none' : 'block'; });
-            document.getElementById('menu-blocked').addEventListener('click', () => { document.getElementById('blocked-modal').style.display = 'flex'; renderBlockedList(); });
             document.getElementById('menu-logout').addEventListener('click', () => firebase.auth().signOut().then(() => window.location.reload()));
-
-            function renderBlockedList() {
-                const list = document.getElementById('blocked-list');
-                list.innerHTML = (!myUser.blocked || myUser.blocked.length === 0) ? `<div style="text-align:center; color:#8696a0;">No blocked accounts</div>` : '';
-                myUser.blocked.forEach(b => {
-                    list.innerHTML += `<div style="background:#111b21; padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;"><span style="color:#e9edef; font-weight:bold;">@${b}</span><button onclick="socket.emit('unblock_user', { targetUsername: '${b}' })" style="background:#202c33; color:#00a884; border:1px solid #00a884; padding:5px 12px; border-radius:6px; cursor:pointer;">Unblock</button></div>`;
-                });
-            }
-            socket.on('update_blocked', ({ blocked }) => { myUser.blocked = blocked; renderBlockedList(); });
-
-            document.getElementById('notif-bell').addEventListener('click', () => document.getElementById('notifications-modal').style.display = 'flex');
-            socket.on('update_requests', ({ requests }) => { myUser.requests = requests; renderNotifications(); });
-            socket.on('update_friends', ({ friends }) => { myUser.friends = friends; renderSidebar(); });
-
-            function renderNotifications() {
-                document.getElementById('notif-badge').style.display = myUser.requests.length > 0 ? 'block' : 'none';
-                document.getElementById('notif-badge').innerText = myUser.requests.length;
-                const list = document.getElementById('notif-list');
-                list.innerHTML = myUser.requests.length === 0 ? '<div style="color:#8696a0; text-align:center;">No new requests</div>' : '';
-                
-                myUser.requests.forEach(req => {
-                    const row = document.createElement('div');
-                    row.style.cssText = "background:#111b21; padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;";
-                    row.innerHTML = `
-                        <span style="color:#e9edef; font-weight:bold;">@${req}</span>
-                        <div style="display:flex; gap:6px;">
-                            <button class="accept-btn" style="background:#00a884; border:none; padding:6px 12px; border-radius:6px; font-weight:bold; cursor:pointer;">Accept</button>
-                            <button class="ignore-btn" style="background:#202c33; color:#8696a0; border:1px solid #2a3942; padding:6px 10px; border-radius:6px; cursor:pointer;">✖</button>
-                        </div>`;
-
-                    row.querySelector('.accept-btn').onclick = () => {
-                        socket.emit('handle_request', { requester: req, action: 'accept' });
-                        document.getElementById('notifications-modal').style.display = 'none';
-                    };
-
-                    row.querySelector('.ignore-btn').onclick = () => {
-                        socket.emit('handle_request', { requester: req, action: 'ignore' });
-                    };
-
-                    list.appendChild(row);
-                });
-            }
-
-            document.getElementById('my-profile-trigger').addEventListener('click', () => openProfile(myUser.username));
-            function openProfile(user) { socket.emit('get_profile', { targetUsername: user }); }
+            document.getElementById('my-profile-trigger').addEventListener('click', () => socket.emit('get_profile', { targetUsername: myUser.username }));
             socket.on('profile_data', (profile) => {
                 document.getElementById('vp-img').src = profile.pfp;
                 document.getElementById('vp-username').innerText = '@' + profile.username;
@@ -698,78 +661,6 @@
                 document.getElementById('vp-join').innerText = 'Member since ' + profile.joinDate;
                 document.getElementById('view-profile-modal').style.display = 'flex';
             });
-
-            document.getElementById('video-trigger-btn').addEventListener('click', () => initiateCall('video'));
-            document.getElementById('voice-trigger-btn').addEventListener('click', () => initiateCall('voice'));
-
-            async function initiateCall(type) {
-                if (activeChat === 'Yaply') return alert("Calls are disabled in the global Yaply channel.");
-                await startLocalStream(type);
-                document.getElementById('call-screen').style.display = 'flex';
-                
-                const title = isGroupChat ? myGroups.find(g => g.id === activeChat)?.name || 'Group' : activeChat;
-                document.getElementById('call-status').innerText = `${type === 'video' ? 'Video' : 'Voice'} Calling ${isGroupChat ? '' : '@'}${title}...`;
-
-                peerConnection = new RTCPeerConnection(rtcConfig);
-                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-                peerConnection.ontrack = (e) => document.getElementById('remote-video').srcObject = e.streams[0];
-
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-                
-                socket.emit('call_user', { target: activeChat, signalData: offer, type, isGroup: isGroupChat });
-            }
-
-            async function startLocalStream(type) {
-                try {
-                    const videoEnabled = type === 'video';
-                    localStream = await navigator.mediaDevices.getUserMedia({ video: videoEnabled, audio: true });
-                    document.getElementById('local-video-box').style.display = videoEnabled ? 'block' : 'none';
-                    document.getElementById('remote-video-box').style.display = videoEnabled ? 'block' : 'none';
-                    if (videoEnabled) document.getElementById('local-video').srcObject = localStream;
-                } catch (err) { alert("Camera/Microphone access denied."); }
-            }
-
-            socket.on('incoming_call', async ({ from, signalData, type, groupName }) => {
-                const callText = groupName ? `Group ${type} call from @${from} in ${groupName}` : `Incoming ${type} call from @${from}`;
-                if (confirm(`${callText}! Accept?`)) {
-                    await startLocalStream(type);
-                    document.getElementById('call-screen').style.display = 'flex';
-                    document.getElementById('call-status').innerText = `Connected`;
-                    document.getElementById('remote-label').innerText = `@${from}`;
-
-                    peerConnection = new RTCPeerConnection(rtcConfig);
-                    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-                    peerConnection.ontrack = (e) => document.getElementById('remote-video').srcObject = e.streams[0];
-
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(signalData));
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    socket.emit('accept_call', { to: from, signalData: answer });
-                } else socket.emit('reject_call', { to: from });
-            });
-
-            socket.on('call_accepted', async ({ signalData, from }) => {
-                if (peerConnection.signalingState !== 'have-local-offer') return; 
-                document.getElementById('call-status').innerText = `Connected`;
-                document.getElementById('remote-label').innerText = `@${from || 'User'}`;
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(signalData));
-            });
-
-            socket.on('call_rejected', () => { alert("Call declined."); endCall(); });
-            socket.on('call_failed', ({ reason }) => { alert(reason); endCall(); });
-            socket.on('call_ended', () => { endCall(); });
-
-            document.getElementById('end-call-btn').addEventListener('click', () => { 
-                socket.emit('end_call', { to: activeChat, isGroup: isGroupChat }); 
-                endCall(); 
-            });
-
-            function endCall() {
-                document.getElementById('call-screen').style.display = 'none';
-                if (localStream) { localStream.getTracks().forEach(track => track.stop()); localStream = null; }
-                if (peerConnection) { peerConnection.close(); peerConnection = null; }
-            }
         }
     </script>
 </body>
