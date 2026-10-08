@@ -94,8 +94,10 @@ io.on('connection', (socket) => {
             socket.emit('search_results', []);
             return;
         }
+        const currentUser = users[socket.uid];
+        const blockedList = currentUser?.blocked || [];
         const results = Object.values(users)
-            .filter(u => u.username.toLowerCase().includes(query.toLowerCase()) && u.username !== users[socket.uid]?.username)
+            .filter(u => u.username.toLowerCase().includes(query.toLowerCase()) && u.username !== currentUser?.username && !blockedList.includes(u.username))
             .map(u => ({ username: u.username, bio: u.bio, pfp: u.pfp }));
         socket.emit('search_results', results);
     });
@@ -131,6 +133,27 @@ io.on('connection', (socket) => {
         socket.emit('update_friends', { friends: user.friends });
     });
 
+    socket.on('block_user', ({ targetUsername }) => {
+        const user = users[socket.uid];
+        if (!user) return;
+        if (!user.blocked) user.blocked = [];
+        if (!user.blocked.includes(targetUsername)) {
+            user.blocked.push(targetUsername);
+            user.friends = user.friends.filter(f => f !== targetUsername);
+        }
+        socket.emit('update_blocked', { blocked: user.blocked });
+        socket.emit('update_friends', { friends: user.friends });
+    });
+
+    socket.on('unblock_user', ({ targetUsername }) => {
+        const user = users[socket.uid];
+        if (!user) return;
+        if (user.blocked) {
+            user.blocked = user.blocked.filter(b => b !== targetUsername);
+        }
+        socket.emit('update_blocked', { blocked: user.blocked });
+    });
+
     socket.on('create_group', ({ groupName, members }) => {
         const creator = users[socket.uid];
         if (!creator) return;
@@ -148,7 +171,6 @@ io.on('connection', (socket) => {
         const sender = users[socket.uid];
         if (!sender) return;
 
-        // Restrict global 'Yaply' channel messaging exclusively to Kyroxify
         if (recipientOrGroup === 'Yaply' && sender.username !== 'Kyroxify') {
             return;
         }
